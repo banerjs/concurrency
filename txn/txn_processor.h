@@ -1,4 +1,5 @@
 // Author: Alexander Thomson (thomson@cs.yale.edu)
+// Modified by: Christina Wallin (christina.wallin@yale.edu)
 
 #ifndef _TXN_PROCESSOR_H_
 #define _TXN_PROCESSOR_H_
@@ -26,7 +27,7 @@ enum CCMode {
   LOCKING_EXCLUSIVE_ONLY = 1,  // Part 1A
   LOCKING = 2,                 // Part 1B
   OCC = 3,                     // Part 2
-  MVCC = 4,                    // Part 3
+  P_OCC = 4,                   // Part 3
 };
 
 // Returns a human-readable string naming of the providing mode.
@@ -63,29 +64,26 @@ class TxnProcessor {
   // OCC version of scheduler.
   void RunOCCScheduler();
 
-  // MVCC version of scheduler.
-  void RunMVCCScheduler();
+  // OCC version of scheduler with parallel validation.
+  void RunOCCParallelScheduler();
 
   // Performs all reads required to execute the transaction, then executes the
   // transaction logic.
   void ExecuteTxn(Txn* txn);
-
-  // MVCC implementation of ExecuteTxn.
-  void ExecuteTxnMVCC(Txn* txn);
 
   // Applies all writes performed by '*txn' to 'storage_'.
   //
   // Requires: txn->Status() is COMPLETED_C.
   void ApplyWrites(Txn* txn);
 
-  // MVCC version of ApplyWrites.
-  void ApplyWritesMVCC(Txn* txn);
-
   // Concurrency control mechanism the TxnProcessor is currently using.
   CCMode mode_;
 
   // Thread pool managing all threads used by TxnProcessor.
   StaticThreadPool tp_;
+
+  // Data storage used for all modes.
+  Storage storage_;
 
   // Next valid unique_id, and a mutex to guard incoming txn requests.
   int next_unique_id_;
@@ -109,22 +107,6 @@ class TxnProcessor {
 
   // Lock Manager used for LOCKING concurrency implementations.
   LockManager* lm_;
-
-  // Data storage used for all modes except MVCC.
-  Storage storage_;
-
-  // MultiVersion data storage. Used in MVCC mode.
-  MVStorage mv_storage_;
-
-  // Next valid mvcc_txn_id_ to assign to a transaction. Used in MVCC mode.
-  uint64 next_mvcc_txn_id_;
-
-  // Tracks the status of all incomplete and aborted transactions. Used in MVCC
-  // mode.
-  //
-  // Note: to keep the log small, committed transactions do NOT appear in
-  // pg_log_.
-  map<uint64, TxnStatus> pg_log_;
 };
 
 #endif  // _TXN_PROCESSOR_H_

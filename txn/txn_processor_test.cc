@@ -14,7 +14,7 @@ string ModeToString(CCMode mode) {
     case LOCKING_EXCLUSIVE_ONLY: return " Locking A";
     case LOCKING:                return " Locking B";
     case OCC:                    return " OCC      ";
-    case MVCC:                   return " MVCC     ";
+    case P_OCC:                  return " OCC-P    ";
     default:                     return "INVALID MODE";
   }
 }
@@ -74,6 +74,7 @@ class RMWLoadGen2 : public LoadGen {
 void Benchmark(const vector<LoadGen*>& lg) {
   // Number of transaction requests that can be active at any given time.
   int active_txns = 100;
+  deque<Txn*> doneTxns;
 
   // Set initial db state.
   map<Key, Value> db_init;
@@ -81,7 +82,9 @@ void Benchmark(const vector<LoadGen*>& lg) {
     db_init[i] = 0;
 
   // For each MODE...
-  for (CCMode mode = SERIAL; mode <= MVCC; mode = static_cast<CCMode>(mode+1)) {
+  for (CCMode mode = SERIAL;
+      mode <= P_OCC;
+      mode = static_cast<CCMode>(mode+1)) {
     // Print out mode name.
     cout << ModeToString(mode) << flush;
 
@@ -106,14 +109,14 @@ void Benchmark(const vector<LoadGen*>& lg) {
 
       // Keep 100 active txns at all times for the first full second.
       while (GetTime() < start + 1) {
-        delete p->GetTxnResult();
+        doneTxns.push_back(p->GetTxnResult());
         txn_count++;
         p->NewTxnRequest(lg[exp]->NewTxn());
       }
 
       // Wait for all of them to finish.
       for (int i = 0; i < active_txns; i++) {
-        delete p->GetTxnResult();
+        doneTxns.push_back(p->GetTxnResult());
         txn_count++;
       }
 
@@ -123,7 +126,8 @@ void Benchmark(const vector<LoadGen*>& lg) {
       // Print throughput
       cout << "\t" << (txn_count / (end-start)) << "\t" << flush;
 
-      // Delete TxnProcessor.
+      // Delete TxnProcessor and completed transactions.
+      doneTxns.clear();
       delete p;
     }
 

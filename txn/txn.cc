@@ -47,3 +47,12 @@ void Txn::CheckReadWriteSets() {
   }
 }
 
+void Txn::CopyTxnInternals(Txn* txn) const {
+  txn->readset_ = set<Key>(this->readset_);
+  txn->writeset_ = set<Key>(this->writeset_);
+  txn->reads_ = map<Key, Value>(this->reads_);
+  txn->writes_ = map<Key, Value>(this->writes_);
+  txn->status_ = this->status_;
+  txn->unique_id_ = this->unique_id_;
+  txn->occ_start_time_ = this->occ_start_time_;
+}

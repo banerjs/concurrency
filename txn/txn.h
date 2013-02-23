@@ -27,6 +27,7 @@ class Txn {
   // Commit vote defauls to false. Only by calling "commit"
   Txn() : status_(INCOMPLETE) {}
   virtual ~Txn() {}
+  virtual Txn * clone() const = 0;    // Virtual constructor (copying)
 
   // Method containing all the transaction's method logic.
   virtual void Run() = 0;
@@ -39,6 +40,11 @@ class Txn {
   void CheckReadWriteSets();
 
  protected:
+  // Copies the internals of this txn into a given transaction (i.e.
+  // the readset, writeset, and so forth).  Be sure to modify this method
+  // to copy any new data structures you create.
+  void CopyTxnInternals(Txn* txn) const;
+
   friend class TxnProcessor;
 
   // Method to be used inside 'Execute()' function when reading records from
@@ -99,10 +105,6 @@ class Txn {
 
   // Start time (used for OCC and MVCC).
   double occ_start_time_;
-
-  // Used for MVCC:
-  uint64 mvcc_txn_id_;
-  map<uint64, TxnStatus> pg_log_snapshot_;
 };
 
 #endif  // _TXN_H_

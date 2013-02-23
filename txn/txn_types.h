@@ -14,6 +14,12 @@ class Noop : public Txn {
  public:
   Noop() {}
   virtual void Run() { COMMIT; }
+
+  Noop* clone() const {             // Virtual constructor (copying)
+    Noop* clone = new Noop();
+    this->CopyTxnInternals(clone);
+    return clone;
+  }
 };
 
 // Reads all keys in the map 'm', if all results correspond to the values in
@@ -23,6 +29,12 @@ class Expect : public Txn {
   Expect(const map<Key, Value>& m) : m_(m) {
     for (map<Key, Value>::iterator it = m_.begin(); it != m_.end(); ++it)
       readset_.insert(it->first);
+  }
+
+  Expect* clone() const {             // Virtual constructor (copying)
+    Expect* clone = new Expect(map<Key, Value>(m_));
+    this->CopyTxnInternals(clone);
+    return clone;
   }
 
   virtual void Run() {
@@ -45,6 +57,12 @@ class Put : public Txn {
   Put(const map<Key, Value>& m) : m_(m) {
     for (map<Key, Value>::iterator it = m_.begin(); it != m_.end(); ++it)
       writeset_.insert(it->first);
+  }
+
+  Put* clone() const {             // Virtual constructor (copying)
+    Put* clone = new Put(map<Key, Value>(m_));
+    this->CopyTxnInternals(clone);
+    return clone;
   }
 
   virtual void Run() {
@@ -93,6 +111,12 @@ class RMW : public Txn {
       } while (readset_.count(key) || writeset_.count(key));
       writeset_.insert(key);
     }
+  }
+
+  RMW* clone() const {             // Virtual constructor (copying)
+    RMW* clone = new RMW(time_);
+    this->CopyTxnInternals(clone);
+    return clone;
   }
 
   virtual void Run() {

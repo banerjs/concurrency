@@ -1,6 +1,8 @@
 /// @file
 /// @author Alexander Thomson <thomson@cs.yale.edu>
 ///
+/// Modified by Christina Wallin <christina.wallin@yale.edu>
+///
 /// Single-threaded performance (tick.zoo.cs.yale.edu, 12/11/11):
 ///
 ///    Atomic<int>:
@@ -27,13 +29,15 @@
 #ifndef _DB_UTILS_ATOMIC_H_
 #define _DB_UTILS_ATOMIC_H_
 
-#include <assert.h>
 #include <queue>
 #include <tr1/unordered_map>
+#include <set>
 
+#include <assert.h>
 #include "utils/mutex.h"
 
 using std::queue;
+using std::set;
 using std::tr1::unordered_map;
 
 /// @class AtomicMap<K, V>
@@ -101,6 +105,59 @@ class AtomicMap {
   MutexRW mutex_;
 };
 
+/// @class AtomicSet<K>
+///
+/// Atomically readable, atomically mutable container.
+/// Implemented as a std::set guarded by a pthread rwlock.
+/// Supports CRUD operations only. Iterators are NOT supported.
+template<typename V>
+class AtomicSet {
+ public:
+  AtomicSet() {}
+
+  // Returns the number of key-value pairs currently stored in the map.
+  int Size() {
+    mutex_.ReadLock();
+    int size = set_.size();
+    mutex_.Unlock();
+    return size;
+  }
+
+  // Returns true if the set contains V value.
+  bool Contains(const V& value) {
+    mutex_.ReadLock();
+    int count = set_.count(value);
+    mutex_.Unlock();
+    return count > 0;
+  }
+
+  // Atomically inserts the value into the set.
+  void Insert(const V& value) {
+    mutex_.WriteLock();
+    set_.insert(value);
+    mutex_.Unlock();
+  }
+
+  // Atomically erases the object value from the set.
+  void Erase(const V& value) {
+    mutex_.WriteLock();
+    set_.erase(value);
+    mutex_.Unlock();
+  }
+
+  // Returns a copy of the underlying set.
+  set<V> GetSet() {
+    mutex_.Lock();
+    set<V> my_set (set_);
+    mutex_.Unlock();
+    return my_set;
+  }
+
+ private:
+  set<V> set_;
+  MutexRW mutex_;
+};
+
 /// @class AtomicQueue<T>
 ///
 /// Queue with atomic push and pop operations.
@@ -112,7 +169,7 @@ class AtomicQueue {
   AtomicQueue() {}
 
   // Returns the number of elements currently in the queue.
-  void Size() {
+  int Size() {
     mutex_.Lock();
     int size = queue_.size();
     mutex_.Unlock();

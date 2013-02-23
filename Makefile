@@ -28,11 +28,11 @@ LDLIBRARYPATH :=
 
 # For profiling (with gprof), this line should read 'PG = -pg'
 # For fast execution, this line should read 'PG ='.
-PG =
+PG = 
 
 # Set the flags for C++ to compile with (namely where to look for external
 # libraries) and the linker libraries (again to look in the ext/ library)
-CXXFLAGS := -g -MD $(PG) -I$(SRCDIR) -I$(OBJDIR)
+CXXFLAGS := -g -MD $(PG) -I$(SRCDIR) -I$(OBJDIR) -std=c++0x
 CXXFLAGS += -Wall -Werror
 
 LDFLAGS := -lpthread -lrt $(PG)
