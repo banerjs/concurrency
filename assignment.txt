@@ -1,0 +1,213 @@
+CPSC 438/538, Assignment 2: Concurrency Control (Locking, OCC, and MVCC)
+
+------------------------------------
+Understanding Locking, OCC, and MVCC
+------------------------------------
+
+Before beginning this assignment, please be sure you have a clear understanding of the goals and challenges of concurrency control mechanisms in database systems. The paper you read for class (http://zoo.cs.yale.edu/classes/cs637/franklin97concurrency.pdf) provides a good introduction to this material.
+
+In this assignment you will be implementing four concurrency control schemes:
+  * two versions of locking schemes, both of which are considerably simpler than standard two-phase locking
+  * a version of OCC very similar to the serial-validation version described in the OCC paper you read for class (http://www.seas.upenn.edu/~zives/cis650/papers/opt-cc.pdf)
+  * the MVCC scheme approximately as implemented in postgreSQL (chapter 26 (or 27, depending on the edition) from your textbook describes MVCC and tuple visibility in considerable depth)
+
+---------
+Framework
+---------
+
+You'll be implementing these concurrency control schemes within a transaction processing framework that implements a simple, main-memory resident key-value store. This is a prototype system designed specially for this assignment, and may not be 100% perfect, so please watch for class emails in the coming weeks, as parts of this assignment may change slightly. Please report any bugs or problems to Alex.
+
+To setup our framework, simply download and extract 'hw2.tar.gz'. You'll see that it contains two subdirectories---'txn' and 'utils'. All the source files you need to worry about are in the 'txn' subdirectory.
+
+To build and test the system, you can run
+
+  make test
+
+at any time. This will first compile the system; if this succeeds with no errors, it will also run two test scripts: one which performs some basic correctness tests of your lock manager implementation, and a second which profiles performance of the system. This second one takes a couple of minutes to run, but you can cancel it at any time by pressing ctrl-C.
+
+Your submissions will be graded on code style and clarity as well correctness and efficiency. When implementing your solutions, please:
+  * Adhere to the Google c++ style guide when implementing your solutions. Before submitting, please ensure that
+      ./hw2_lint txn/*
+    finds 0 errors.
+  * Comment your header files & code thoroughly in the manner demonstrated in the rest of the framework.
+  * Organize your code logically.
+  * Use descriptive variable names.
+  * Use vertical and horizontal whitespace meaningfully and consistently.
+
+In this assignment, you will ONLY need to make changes to the following files/classes/methods:
+
+  txn/lock_manager.cc:
+    all methods (aside for the constructor and deconstructor) for classes 'LockManagerA' (Part 1A) and 'LockManagerB' (Part 1B)
+
+  txn/txn_processor.cc:
+    'TxnProcessor::RunOCCScheduler' method (Part 2)
+
+  txn/storage.h, txn/storage.cc:
+    'MVStorage' class (Part 3)
+
+However, to understand what's going on in the framework, you will need to look through most of the files in the txn/ directory. (But you should ignore everything in the utils/ directory!) We suggest looking first at the TxnProcessor object (txn/txn_processor.h) and in particular the 'TxnProcessor::RunSerialScheduler()' method (txn/txn_processor.cc) and examining how it interacts with various objects in the system.
+
+You may also want to add additional transaction types and unit tests to verify the correctness of your solution and further test its performance characteristics, but the above four files are the only ones you will be submitting, so be sure that your solutions don't depend on any modifications to other parts of the codebase.
+
+You may also want to look through the various test scripts (txn/*_test.cc) to see how they're set up. Try adding a new test to one of these scripts to get familiar with the test framework, and see what happens when it passes or fails.
+
+Note: The framework relies heavily on the C++ standard template library (STL). If you have any questions about how to use the STL (it's really quite easy and friendly, I promise), please consult your search engine of choice.
+
+----------------------------------------------
+Part 1A: Simple Locking (exclusive locks only)
+----------------------------------------------
+
+Once you've looked through the code and are somewhat familiar with the overall structure and flow, you'll implement a simplified version of two-phase locking. The protocol goes like this:
+
+1) Upon entering the system, each transaction requests an EXCLUSIVE lock on EVERY item that it will either read or write.
+2) Wait until ALL locks are granted. This might be immediately, or the transaction might have to wait for earlier transactions to release their locks on the relevant keys.
+3) Execute program logic.
+4) Release ALL locks at commit/abort time.
+
+Two additional rules:
+A) Transactions must submit their entire set of lock requests ATOMICALLY. This means that if any of Txn A's lock requests is submitted before some lock request of Txn B, then ALL of Txn A's lock requests must be submitted before ANY of Txn B's. In practice, we do this by having a single thread do all concurrency control work.
+B) Each lock must be granted to transactions in the order that they requested it. So if Txn A and Txn B both requested a lock on the record with key "X", and A was the first to request the lock, then A must also be the first to be granted the lock.
+
+Note that the transaction's read and write sets are always declared up front in 'Txn::readset_' and 'Txn::writeset_'. When executing, txns are allowed to read records whose keys appear in EITHER its readset or its writeset, and it may write records whose keys appear in writeset.
+
+To help you get comfortable using the transaction processing framework, most of this algorithm is already implemented in 'TxnProcessor::RunScheduler1()'. Locks are requested and released at all the right times, and all necessary data structures for an efficient lock manager are already in place. All you need to do is implement the 'WriteLock', 'Release', and 'Status' methods in the class 'LockManagerA'.
+
+The test file 'txn/lock_manager_test.cc' provides some rudimentary correctness tests for your lock manager implementations, but additional tests may be added when we grade the assignment. We therefore suggest that you augment the tests with any additional cases you can think of that the existing tests do not cover. If you think of any really nefarious ones (that an implementation that passes the provided tests may nonetheless fail), please send them to Alex! =)
+
+--------------------------------------------------------------
+Part 1B: Slightly Less Simple Locking (adding in shared locks)
+--------------------------------------------------------------
+
+To increase concurrency, we can allow transactions with overlapping readsets but disjoing writesets to execute concurrently. We do this by adding in SHARED locks. Again, all data structures already exist, and all you need to implement are the 'WriteLock', 'ReadLock', 'Release', and 'Status' methods in the class 'LockManagerB'.
+
+Again, 'txn/lock_manager_test.cc' profides some basic correctness tests, but you should go beyond these in checking the correctness of your implementation.
+
+--------------------------------------------
+Part 2: Optimistic Concurrency Control (OCC)
+--------------------------------------------
+
+For OCC, you will have to implement the 'TxnProcessor::RunOCCScheduler' method. To test the correctness of your OCC implementation, you may want to add one or more new tests to txn/txn_processor_test.cc, but these should not be submitted.
+
+This is a simplified version of OCC compared to the one presented in the paper.
+
+Pseudocode for the OCC algorithm to implement (in the RunOCCScheduler method):
+
+  while (true) {
+    Get the next new transaction request (if one is pending) and start it running.
+    Deal with all transactions that have finished running.
+  }
+
+  Starting a transaction:
+    Record start time.
+    Start transaction running in its own thread.
+
+  Dealing with a finished transaction:
+    // Validation phase:
+    for (each record whose key appears in the txn's in the read and write sets) {
+      if (the record was last updated AFTER this transaction's start time) {
+        Validation fails!
+      }
+    }
+    // Commit/restart
+    if (validation failed) {
+      Completely restart the transaction.
+    } else {
+      Apply all writes.
+      Mark transaction as committed.
+    }
+
+-----------------------------------------------
+Part 3: Multiversion Concurrency Control (MVCC)
+-----------------------------------------------
+
+For MVCC, you will have to implement postgreSQL-style tuple visibility in the 'MVStorage' class. As in parts 1A and 1B, the RunMVCCScheduler method is already implemented for you, but to correctly implement the MVStorage class, you will have to carefully read and understand the RunMVCCScheduler, ExecuteTxnMVCC, and ApplyWritesMVCC methods in the TxnProcessor class.
+
+Pseudocode for the MVCC algorithm (already implemented in RunMVCCScheduler):
+
+  while (true) {
+    Get the next new transaction request (if one is pending) and request all locks.
+    Deal with all transactions that have finished running.
+    Deal with all transactions that are ready to start running.
+  }
+
+  Starting a transaction:
+    Request locks on transaction's writeset (but not readset), using the lock manager you implemented in part 1A.
+    If it has successfully acquired all locks, add it to the ready-to-run queue.
+
+  Dealing with a finished transaction:
+    Apply all writes.
+    Mark transaction as committed.
+    Release all write locks.
+    Remove this transaction's entry from pg_log. [IMPORTANT: This is different from how postgreSQL implements updates.]
+
+  Dealing with a ready-to-run transaction:
+    Assign the txn a transactionID (using 'TxnProcessor::next_mvcc_txn_id_' and 'Txn::mvcc_txn_id_').
+    Insert this txn's transactionID into pg_log ('TxnProcessor::pg_log_').
+    Take a snapshot of the pg_log (storing it in the txn's 'Txn::pg_log_snapshot_').
+    Start transaction running in separate thread (but using 'TxnProcessor::ExecuteTxnMVCC' rather than 'TxnProcessor::ExecuteTxn').
+
+----------------
+Part 4: Analysis
+----------------
+
+After implementing both locking schemes, OCC, and MVCC, please respond to the following questions in analysis.txt (text only, no formatting please).
+
+1) Carpe datum.
+
+Run 'make test' and report the performance numbers given by txn_processor_test. Please run this on a zoo machine. In particular, find one that is not being used by anyone else (run 'top' or 'uptime' to see current memory usage/CPU load). This is extremely important for reproducibility of results.
+
+2) Simulations are doomed to succeed.
+
+Transaction durations are accomplished simply by forcing the thread executing each transaction to sleep for approximately the amount of time specified. Why is this a good approximation of transaction costs in real systems? What problems are there with the approximation?
+
+3) Adventures in contention.
+
+Tests labeled 'n% contention' signify that any pair of transactions will have a write-write conflict with n% probability. (Read-write conflicts will occur with higher probability yet.) In the 'High contention mixed read/write' case, 10% of transactions are READ-ONLY and run for the transaction duration listed. The rest are very fast (< 0.1ms) 65% contention updates.
+
+At any given time, 100 transactions may be actively running in the system.
+
+When all transactions are read-only, they can all execute simultaneously (except in the Serial and Locking A cases)---assuming there's plenty of CPU/disk/memory resources to go around and we're ONLY limited by contention. So if all transactions take exactly 'd' seconds to execute, the maximum total throughput you could expect to get is 100/d.
+
+When all transactions attempt to modify the same record (100% contention), it is impossible to do any better than serial execution, so you'd expect a maximum total throughput of 1/d.
+
+If a concurrency control scheme always chose the optimal schedule to execute any set of transactions, what maximum total throughput would you expect to get given 10% contention? How about with 65% contention? (You may ignore read-write conflicts.) Provide and explain all your calculations.
+
+4) The glass is half empty.
+
+Which of the locking schemes that you implemented performs better, Locking A or Locking B? Why? When is this most apparent? Can you think of a scenario in which you might see the opposite effect?
+
+Neither of these locking schemes is very similar to standard two-phase locking. What advantages does Locking B have over two-phase locking? What disadvantages does it have?
+
+5) The glass is half full.
+
+How does OCC perform compared to other schemes? How does this compare to any expectations you had when you started implementing OCC? In a 'real' system that implemented fancy schmancy features like disk reads, indexes, query planners, buffer pools, logging, etc., do you think OCC would compare with Locking/MVCC similarly to how it does in this toy system?
+
+The version of OCC you implemented is essentially serial-validation OCC. What general changes might you have to make to the framework to implement parallel-validation OCC? How do you think it would perform? Justify your answers.
+
+6) Extra version olive oil.
+
+Note that in our version of MVCC differs from postgreSQL's in that we remove committed transactions from the pg_log. Why is this okay given the way our framework is implemented? What are the advantages of doing it this way? Would this work in postgreSQL? Why or why not?
+
+What is MVCC's great advantage over the other schemes you implemented? Justify your answer using your data.
+
+How might you modify your locking and OCC implementations to share this advantage?
+
+This MVCC scheme does NOT implement full serializability---only snapshot isolation. Give an example of an allowable execution in this scheme that is NOT equivalent to any serial execution of the same set of transactions.
+
+----------
+Submission
+----------
+
+What To Turn In
+
+  * analysis.txt --- Your responses to the analysis questions above.
+  * lock_manager.cc --- Your implementation of all methods of LockManagerA and LockManagerB.
+  * txn_processor.cc --- Your implementation of TxnProcessor::RunOCCScheduler. No other parts of this file should be modified.
+  * storage.h and storage.cc --- Your implementation of the MVStorage class supporting postgreSQL-style MVCC tuple visibility.
+  * MY.PARTNERS --- Listing the other person that you worked with (undergraduates only).
+
+How to Submit
+
+  * Upload your files you are submitting as attachments to the classesv2 assignments page.
+  * Make sure that hit 'submit' after uploading your attachments. Otherwise the attachments will not actually be uploaded to the server. It is your responsibility to make sure that classes v2 thinks you submitted something successfully. If you don't get an e-mail confirmation, it probably didn't go through.
+
