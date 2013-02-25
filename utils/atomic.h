@@ -147,7 +147,7 @@ class AtomicSet {
 
   // Returns a copy of the underlying set.
   set<V> GetSet() {
-    mutex_.Lock();
+    mutex_.ReadLock();
     set<V> my_set (set_);
     mutex_.Unlock();
     return my_set;
