@@ -14,6 +14,8 @@
 
 TxnProcessor::TxnProcessor(CCMode mode)
     : mode_(mode), tp_(THREAD_COUNT, QUEUE_COUNT), next_unique_id_(1) {
+  DERROR("Creating new Txn Processor. Mode = %d\n", mode);
+
   if (mode_ == LOCKING_EXCLUSIVE_ONLY)
     lm_ = new LockManagerA(&ready_txns_);
   else if (mode_ == LOCKING)
@@ -51,16 +53,19 @@ Txn* TxnProcessor::GetTxnResult() {
 
 void TxnProcessor::RunScheduler() {
   switch (mode_) {
-    case SERIAL:                 RunSerialScheduler();
-    case LOCKING:                RunLockingScheduler();
-    case LOCKING_EXCLUSIVE_ONLY: RunLockingScheduler();
-    case OCC:                    RunOCCScheduler();
-    case P_OCC:                  RunOCCParallelScheduler();
+    case SERIAL:                 RunSerialScheduler(); break;
+    case LOCKING:                RunLockingScheduler(); break;
+    case LOCKING_EXCLUSIVE_ONLY: RunLockingScheduler(); break;
+    case OCC:                    RunOCCScheduler(); break;
+    case P_OCC:                  RunOCCParallelScheduler(); break;
   }
 }
 
 void TxnProcessor::RunSerialScheduler() {
   Txn* txn;
+
+  DERROR("Running a Serial Scheduler. This is the simplest version\n");
+
   while (tp_.Active()) {
     // Get next txn request.
     if (txn_requests_.Pop(&txn)) {
@@ -86,6 +91,9 @@ void TxnProcessor::RunSerialScheduler() {
 
 void TxnProcessor::RunLockingScheduler() {
   Txn* txn;
+
+  DERROR("Running a Locking Scheduler. This will be implemented by Mike\n");
+
   while (tp_.Active()) {
     // Start processing the next incoming transaction request.
     if (txn_requests_.Pop(&txn)) {
@@ -164,7 +172,32 @@ void TxnProcessor::RunOCCScheduler() {
   // [For now, run serial scheduler in order to make it through the test
   // suite]
 
-  RunSerialScheduler();
+  Txn *txn;                             // Transaction pointer for current Txn
+
+  DERROR("Running an OCC Serial Scheduler\n");
+
+  DIE("Serial Scheduler is still being implemented");
+
+  while (tp_.Active()) {
+    // Check for transactions waiting in the transaction queue
+    if (txn_requests_.Pop(&txn)) {
+      txn->occ_start_time_ = GetTime();  // Record a new Transaction
+      DERROR("New transaction starting at %f\n", txn->occ_start_time_);
+
+      // Start running the transaction in its own thread
+      // tp_.RunTask(new Method<TxnProcessor, void, Txn *>(
+      //               this,
+      //               &TxnProcessor::ExecuteTxn,
+      //               txn));
+
+      // Bypass and check the test execution order
+      txn_results_.Push(txn);
+    }
+
+    // Deal with transactions that have completed execution
+  }
+
+  DIE("Serial Scheduler is still being implemented");
 }
 
 void TxnProcessor::RunOCCParallelScheduler() {
@@ -176,6 +209,8 @@ void TxnProcessor::RunOCCParallelScheduler() {
   //
   // [For now, run serial scheduler in order to make it through the test
   // suite]
+
+  DERROR("Running an OCC Parallel Scheduler\n");
 
   RunSerialScheduler();
 }
