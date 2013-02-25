@@ -21,6 +21,18 @@ using std::string;
 // assert if in debug mode
 #define DCHECK(ARG) if (DEBUG) { assert(ARG); }
 
+// print to stdout/stderr if in debug mode
+#define DPRINT(...) \
+  if (DEBUG) { \
+    std::cout << __FUNCTION__ << ": "; \
+    fprintf(stdout, __VA_ARGS__); \
+  }
+#define DERROR(...) \
+  if (DEBUG) { \
+    std::cerr << __FUNCTION__ << ": "; \
+    fprintf(stderr, __VA_ARGS__); \
+  }
+
 // print message and die
 #define DIE(MSG) \
   do { \
