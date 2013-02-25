@@ -182,22 +182,53 @@ void TxnProcessor::RunOCCScheduler() {
     // Check for transactions waiting in the transaction queue
     if (txn_requests_.Pop(&txn)) {
       txn->occ_start_time_ = GetTime();  // Record a new Transaction
-      DERROR("New transaction starting at %f\n", txn->occ_start_time_);
+      DERROR("New transaction %lu starting at %f\n", txn->unique_id_,
+             txn->occ_start_time_);
 
       // Start running the transaction in its own thread
-      // tp_.RunTask(new Method<TxnProcessor, void, Txn *>(
-      //               this,
-      //               &TxnProcessor::ExecuteTxn,
-      //               txn));
-
-      // Bypass and check the test execution order
-      txn_results_.Push(txn);
+      tp_.RunTask(new Method<TxnProcessor, void, Txn *>(
+                    this,
+                    &TxnProcessor::ExecuteTxn,
+                    txn));
     }
 
     // Deal with transactions that have completed execution
-  }
+    while (completed_txns_.Pop(&txn)) {
+      bool valid = true;                // Boolean to keep track of txn validity
 
-  DIE("Serial Scheduler is still being implemented");
+      DERROR("Validating transaction %lu\n", txn->unique_id_);
+
+      // If the transaction wants to abort, go ahead and let it abort. That
+      // would save us significant overhead in checking
+      if (txn->Status() == COMPLETED_A) {
+        DERROR("Transaction %lu is requesting an ABORT!\n", txn->unique_id_);
+        txn->status = ABORTED;
+      } else if (txn->Status() != COMPLETED_C) {
+        // Invalid Txn Status!
+        DIE("Completed Txn has invalid TxnStatus: " << txn->Status());
+      }
+
+      // Now we can be sure that the transaction wants to commit. Hence, go
+      // ahead and validate this transaction's reads/writes
+      for (map<Key, Value>::iterator it = txn->reads_.begin();
+           it != txn->reads_.end(); ++it) {
+        if (storage_.Timestamp(it->first) > txn->occ_start_time_)  // INVALID!!
+          valid = false;
+      }
+
+      // If the transaction is valid, commit
+      if (valid) {
+        DERROR("Transaction %lu is valid!\n", txn->unique_id_);        
+        ApplyWrites(txn);
+        txn->status_ = COMMITTED;
+      } else {  // Transaction is not valid, so roll it back
+        DERROR("Transaction %lu is invalid!\n", txn->unique_id_);
+        (txn->reads_).clear();  // Remove all the reads done by the transaction
+        txn->status = INCOMPLETE;
+        txn_requests_.Push(txn); // Send Txn back to get re-evaluated
+      }
+    }
+  }
 }
 
 void TxnProcessor::RunOCCParallelScheduler() {
