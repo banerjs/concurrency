@@ -12,9 +12,13 @@
 #define THREAD_COUNT 100
 #define QUEUE_COUNT 10
 
+// Quick define for being specific to a MODE
+#define MODE_DEBUG OCC
+#define MODE_PRINT(MSG) if (mode_ == MODE_DEBUG) { MSG; }
+
 TxnProcessor::TxnProcessor(CCMode mode)
     : mode_(mode), tp_(THREAD_COUNT, QUEUE_COUNT), next_unique_id_(1) {
-  DERROR("Creating new Txn Processor. Mode = %d\n", mode);
+  MODE_PRINT(DERROR("Creating new Txn Processor. Mode = %d\n", mode))
 
   if (mode_ == LOCKING_EXCLUSIVE_ONLY)
     lm_ = new LockManagerA(&ready_txns_);
@@ -64,7 +68,7 @@ void TxnProcessor::RunScheduler() {
 void TxnProcessor::RunSerialScheduler() {
   Txn* txn;
 
-  DERROR("Running a Serial Scheduler. This is the simplest version\n");
+  MODE_PRINT(DERROR("Running a Serial Scheduler\n"));
 
   while (tp_.Active()) {
     // Get next txn request.
@@ -92,7 +96,7 @@ void TxnProcessor::RunSerialScheduler() {
 void TxnProcessor::RunLockingScheduler() {
   Txn* txn;
 
-  DERROR("Running a Locking Scheduler. This will be implemented by Mike\n");
+  MODE_PRINT(DERROR("Running a Locking Scheduler\n"));
 
   while (tp_.Active()) {
     // Start processing the next incoming transaction request.
@@ -174,16 +178,14 @@ void TxnProcessor::RunOCCScheduler() {
 
   Txn *txn;                             // Transaction pointer for current Txn
 
-  DERROR("Running an OCC Serial Scheduler\n");
-
-  DIE("Serial Scheduler is still being implemented");
+  MODE_PRINT(DERROR("Running an OCC Serial Scheduler\n"));
 
   while (tp_.Active()) {
     // Check for transactions waiting in the transaction queue
     if (txn_requests_.Pop(&txn)) {
       txn->occ_start_time_ = GetTime();  // Record a new Transaction
-      DERROR("New transaction %lu starting at %f\n", txn->unique_id_,
-             txn->occ_start_time_);
+      MODE_PRINT(DERROR("New transaction %lu starting at %f\n", txn->unique_id_,
+                        txn->occ_start_time_));
 
       // Start running the transaction in its own thread
       tp_.RunTask(new Method<TxnProcessor, void, Txn *>(
@@ -196,13 +198,16 @@ void TxnProcessor::RunOCCScheduler() {
     while (completed_txns_.Pop(&txn)) {
       bool valid = true;                // Boolean to keep track of txn validity
 
-      DERROR("Validating transaction %lu\n", txn->unique_id_);
+      MODE_PRINT(DERROR("Validating transaction %lu\n", txn->unique_id_));
 
       // If the transaction wants to abort, go ahead and let it abort. That
       // would save us significant overhead in checking
       if (txn->Status() == COMPLETED_A) {
-        DERROR("Transaction %lu is requesting an ABORT!\n", txn->unique_id_);
-        txn->status = ABORTED;
+        MODE_PRINT(DERROR("Transaction %lu is requesting an ABORT!\n",
+                          txn->unique_id_));
+        txn->status_ = ABORTED;
+        txn_results_.Push(txn);
+        continue;
       } else if (txn->Status() != COMPLETED_C) {
         // Invalid Txn Status!
         DIE("Completed Txn has invalid TxnStatus: " << txn->Status());
@@ -218,14 +223,15 @@ void TxnProcessor::RunOCCScheduler() {
 
       // If the transaction is valid, commit
       if (valid) {
-        DERROR("Transaction %lu is valid!\n", txn->unique_id_);        
+        MODE_PRINT(DERROR("Transaction %lu is valid!\n", txn->unique_id_));
         ApplyWrites(txn);
         txn->status_ = COMMITTED;
+        txn_results_.Push(txn);
       } else {  // Transaction is not valid, so roll it back
-        DERROR("Transaction %lu is invalid!\n", txn->unique_id_);
-        (txn->reads_).clear();  // Remove all the reads done by the transaction
-        txn->status = INCOMPLETE;
-        txn_requests_.Push(txn); // Send Txn back to get re-evaluated
+        MODE_PRINT(DERROR("Transaction %lu is invalid!\n", txn->unique_id_));
+        (txn->reads_).clear();          // Remove all the reads done by Txn
+        txn->status_ = INCOMPLETE;
+        txn_requests_.Push(txn);        // Send Txn back to get re-evaluated
       }
     }
   }
@@ -241,7 +247,7 @@ void TxnProcessor::RunOCCParallelScheduler() {
   // [For now, run serial scheduler in order to make it through the test
   // suite]
 
-  DERROR("Running an OCC Parallel Scheduler\n");
+  MODE_PRINT(DERROR("Running an OCC Parallel Scheduler\n"));
 
   RunSerialScheduler();
 }
