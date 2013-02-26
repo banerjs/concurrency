@@ -7,6 +7,7 @@
 #include <set>
 
 #include "txn/lock_manager.h"
+#include "txn/txn_types.h"
 
 // Thread & queue counts for StaticThreadPool initialization.
 #define THREAD_COUNT 100
@@ -14,13 +15,12 @@
 
 // Maximum number of transactions to deal with during validation and
 // post-validation.
-#define VALIDATION_MAX      1
+#define VALIDATION_MAX      10
 #define POST_VALIDATION_MAX 100
 
 // Quick define for being specific to a MODE
 #define MODE_DEBUG P_OCC
-#define MODE_PRINT(MSG) if (print && mode_ == MODE_DEBUG) { MSG; }
-static bool print = false;
+#define MODE_PRINT(MSG) if (mode_ == MODE_DEBUG) { MSG; }
 
 TxnProcessor::TxnProcessor(CCMode mode)
     : mode_(mode), tp_(THREAD_COUNT, QUEUE_COUNT), next_unique_id_(1) {
@@ -257,28 +257,13 @@ void TxnProcessor::RunOCCParallelScheduler() {
 
   MODE_PRINT(DERROR("Running an OCC Parallel Scheduler\n"));
 
-  // DIE("Parallel OCC is still being implemented");
-
   while (tp_.Active()) {
     int counter = 0;                     // Counter to keep track of number of
                                          //  transactions that have been checked
     pair<Txn*, bool> validation_result;  // Flag for if the transaction is valid
                                          //  in the post-validation phase
-    pair<set<Txn*>::iterator, bool> insert_check;
 
     // Check for transactions waiting in the transaction queue
-    // if (!ready_txns_.empty()) {
-    //   txn = ready_txns_.front();
-    //   ready_txns_.pop_front();
-    //   txn->occ_start_time_ = GetTime();  // Record a new Transaction
-    //   MODE_PRINT(DERROR("Restarting transaction %lu starting at %f\n", txn->unique_id_,
-    //                     txn->occ_start_time_));
-
-    //   // Start running the transaction in its own thread
-    //   tp_.RunTask(new Method<TxnProcessor, void, Txn *>(
-    //                 this,
-    //                 &TxnProcessor::ExecuteTxn,
-    //                 txn));
     if (txn_requests_.Pop(&txn)) {
       txn->occ_start_time_ = GetTime();  // Record a new Transaction
       MODE_PRINT(DERROR("New transaction %lu starting at %f\n", txn->unique_id_,
@@ -306,23 +291,17 @@ void TxnProcessor::RunOCCParallelScheduler() {
       }
 
       // The transaction is set on committing. Send it for validation
-      set<Txn*> txn_active_set = active_set_;
-      insert_check = active_set_.insert(txn);   // Insert this txn for others
+      Txn *proxy = new Noop();                       // Create a proxy txn
+      map<Txn*, Txn*> txn_active_set = active_set_;  // Local copy of active set
+
+      txn->CopyTxnInternals(proxy);                      // Populate the proxy
+      active_set_.insert(pair<Txn*, Txn*>(txn, proxy));  // Insert this txn
 
       MODE_PRINT(DERROR("Sending transaction %lu for validation\n",
                         txn->unique_id_));
 
-      if (print) {
-        DERROR(" Active Set after adding %lu is:  ", txn->unique_id_);
-        for (set<Txn*>::iterator it = active_set_.begin();
-             it != active_set_.end(); ++it) {
-          fprintf(stderr, "%lu, ", (*it)->unique_id_);
-        }
-        fprintf(stderr, "\n");
-      }
-
       // Validate the transaction in a separate thread
-      tp_.RunTask(new Method<TxnProcessor, void, Txn *, set<Txn*> >(
+      tp_.RunTask(new Method<TxnProcessor, void, Txn *, map<Txn*, Txn*> >(
                     this,
                     &TxnProcessor::ValidateTxn,
                     txn,
@@ -333,12 +312,9 @@ void TxnProcessor::RunOCCParallelScheduler() {
 
     // Reset the counter in order to check post-validated
     counter = 0;
-    while (counter < POST_VALIDATION_MAX &&  // Appropriate no. of post-valids
-           validated_txns_.Pop(&validation_result)) {
+    while (counter < POST_VALIDATION_MAX &&   // Appropriate no. post-valid
+           validated_txns_.Pop(&validation_result)) {  // txns present
       bool valid = validation_result.second;  // Make referencing easier
-
-      if (!valid)
-        print = true;
 
       MODE_PRINT(DERROR("Transaction %lu has completed validation with %d\n",
                         (validation_result.first)->unique_id_, valid));
@@ -347,15 +323,6 @@ void TxnProcessor::RunOCCParallelScheduler() {
 
       active_set_.erase(txn);           // Remove from active_set
 
-      if (print) {
-        DERROR("Active Set after deleting %lu is: ", txn->unique_id_);
-        for (set<Txn*>::iterator it = active_set_.begin();
-             it != active_set_.end(); ++it) {
-          fprintf(stderr, "%lu, ", (*it)->unique_id_);
-        }
-        fprintf(stderr, "\n");
-      }
-
       if (valid) {                      // Transaction was successful
         txn->status_ = COMMITTED;
         txn_results_.Push(txn);
@@ -363,7 +330,6 @@ void TxnProcessor::RunOCCParallelScheduler() {
         (txn->reads_).clear();          // Remove all the reads done by Txn
         txn->status_ = INCOMPLETE;
         txn_requests_.Push(txn);
-        // ready_txns_.push_back(txn);     // Send Txn back to get re-evaluated
       }
 
       ++counter;
@@ -408,7 +374,7 @@ void TxnProcessor::ApplyWrites(Txn* txn) {
   txn->status_ = COMMITTED;
 }
 
-void TxnProcessor::ValidateTxn(Txn *txn, set<Txn*> active_set) {
+void TxnProcessor::ValidateTxn(Txn *txn, map<Txn*, Txn*> active_set) {
   bool valid = true;                    // Flag to check validity of Txn
 
   // Check the read and write sets of the transaction to ensure that nothing
@@ -421,14 +387,13 @@ void TxnProcessor::ValidateTxn(Txn *txn, set<Txn*> active_set) {
       valid = false;
   }
 
-  // validated_txns_.Push(pair<Txn*, bool>(txn, valid));
   // Check the active set for overlapping read or write set
-  for (set<Txn*>::iterator it = active_set.begin();
+  for (map<Txn*, Txn*>::iterator it = active_set.begin();
        it != active_set.end(); ++it) {
     if (!valid)                         // Speed up process by breaking earlier
       break;
-    for (map<Key, Value>::iterator it2 = (*it)->reads_.begin();  // reads_ of
-         it2 != (*it)->reads_.end(); ++it2) {                    //  active_set
+    for (map<Key, Value>::iterator it2 = it->second->reads_.begin();
+         it2 != it->second->reads_.end(); ++it2) {
       if (txn->writeset_.count(it2->first)) {  // There is an intersection
         valid = false;
         break;

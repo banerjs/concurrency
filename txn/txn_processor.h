@@ -76,7 +76,7 @@ class TxnProcessor {
 
   // Does the validation phase for all the transactions. Upon completion,
   // deposits the transaction back to the scheduler through 'validated_txns_'
-  void ValidateTxn(Txn *txn, set<Txn*> active_set);
+  void ValidateTxn(Txn *txn, map<Txn*, Txn*> active_set);
 
   // Applies all writes performed by '*txn' to 'storage_'.
   //
@@ -117,7 +117,7 @@ class TxnProcessor {
 
   // Active Set of the thread pool. Do not need this to be atomic because
   // multiple threads never read and write this at the same time.
-  set<Txn*> active_set_;
+  map<Txn*, Txn*> active_set_;
 
   // Lock Manager used for LOCKING concurrency implementations.
   LockManager* lm_;
