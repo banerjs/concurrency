@@ -9,8 +9,8 @@
 #include "txn/lock_manager.h"
 
 // Thread & queue counts for StaticThreadPool initialization.
-#define THREAD_COUNT 10
-#define QUEUE_COUNT 100
+#define THREAD_COUNT 100
+#define QUEUE_COUNT 10
 
 // Maximum number of transactions to deal with during validation and
 // post-validation.
@@ -19,7 +19,8 @@
 
 // Quick define for being specific to a MODE
 #define MODE_DEBUG P_OCC
-#define MODE_PRINT(MSG) if (mode_ == MODE_DEBUG) { MSG; }
+#define MODE_PRINT(MSG) if (print && mode_ == MODE_DEBUG) { MSG; }
+static bool print = false;
 
 TxnProcessor::TxnProcessor(CCMode mode)
     : mode_(mode), tp_(THREAD_COUNT, QUEUE_COUNT), next_unique_id_(1) {
@@ -263,8 +264,21 @@ void TxnProcessor::RunOCCParallelScheduler() {
                                          //  transactions that have been checked
     pair<Txn*, bool> validation_result;  // Flag for if the transaction is valid
                                          //  in the post-validation phase
+    pair<set<Txn*>::iterator, bool> insert_check;
 
     // Check for transactions waiting in the transaction queue
+    // if (!ready_txns_.empty()) {
+    //   txn = ready_txns_.front();
+    //   ready_txns_.pop_front();
+    //   txn->occ_start_time_ = GetTime();  // Record a new Transaction
+    //   MODE_PRINT(DERROR("Restarting transaction %lu starting at %f\n", txn->unique_id_,
+    //                     txn->occ_start_time_));
+
+    //   // Start running the transaction in its own thread
+    //   tp_.RunTask(new Method<TxnProcessor, void, Txn *>(
+    //                 this,
+    //                 &TxnProcessor::ExecuteTxn,
+    //                 txn));
     if (txn_requests_.Pop(&txn)) {
       txn->occ_start_time_ = GetTime();  // Record a new Transaction
       MODE_PRINT(DERROR("New transaction %lu starting at %f\n", txn->unique_id_,
@@ -293,10 +307,19 @@ void TxnProcessor::RunOCCParallelScheduler() {
 
       // The transaction is set on committing. Send it for validation
       set<Txn*> txn_active_set = active_set_;
-      active_set_.insert(txn);           // Insert this txn for others
+      insert_check = active_set_.insert(txn);   // Insert this txn for others
 
       MODE_PRINT(DERROR("Sending transaction %lu for validation\n",
                         txn->unique_id_));
+
+      if (print) {
+        DERROR(" Active Set after adding %lu is:  ", txn->unique_id_);
+        for (set<Txn*>::iterator it = active_set_.begin();
+             it != active_set_.end(); ++it) {
+          fprintf(stderr, "%lu, ", (*it)->unique_id_);
+        }
+        fprintf(stderr, "\n");
+      }
 
       // Validate the transaction in a separate thread
       tp_.RunTask(new Method<TxnProcessor, void, Txn *, set<Txn*> >(
@@ -314,27 +337,21 @@ void TxnProcessor::RunOCCParallelScheduler() {
            validated_txns_.Pop(&validation_result)) {
       bool valid = validation_result.second;  // Make referencing easier
 
+      if (!valid)
+        print = true;
+
       MODE_PRINT(DERROR("Transaction %lu has completed validation with %d\n",
                         (validation_result.first)->unique_id_, valid));
 
       txn = validation_result.first;    // Make referencing cleaner
 
-      if (!valid) {
-        DERROR("The active set has (pre-delete): ");
-        for (set<Txn*>::iterator it = active_set_.begin();
-             it != active_set_.end(); ++it) {
-          fprintf(stderr, "%lu\t", (*it)->unique_id_);
-        }
-        fprintf(stderr, "\n");
-      }
-
       active_set_.erase(txn);           // Remove from active_set
 
-      if (!valid) {
-        DERROR("The active set has (post-delete): ");
+      if (print) {
+        DERROR("Active Set after deleting %lu is: ", txn->unique_id_);
         for (set<Txn*>::iterator it = active_set_.begin();
              it != active_set_.end(); ++it) {
-          fprintf(stderr, "%lu\t", (*it)->unique_id_);
+          fprintf(stderr, "%lu, ", (*it)->unique_id_);
         }
         fprintf(stderr, "\n");
       }
@@ -345,7 +362,8 @@ void TxnProcessor::RunOCCParallelScheduler() {
       } else {                          // Transaction was invalid
         (txn->reads_).clear();          // Remove all the reads done by Txn
         txn->status_ = INCOMPLETE;
-        txn_requests_.Push(txn);        // Send Txn back to get re-evaluated
+        txn_requests_.Push(txn);
+        // ready_txns_.push_back(txn);     // Send Txn back to get re-evaluated
       }
 
       ++counter;
