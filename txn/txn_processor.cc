@@ -15,7 +15,7 @@
 // Maximum number of transactions to deal with during validation and
 // post-validation.
 #define VALIDATION_MAX      1
-#define POST_VALIDATION_MAX 1
+#define POST_VALIDATION_MAX 100
 
 // Quick define for being specific to a MODE
 #define MODE_DEBUG P_OCC
@@ -292,7 +292,7 @@ void TxnProcessor::RunOCCParallelScheduler() {
       }
 
       // The transaction is set on committing. Send it for validation
-      set<Txn*> txn_active_set = active_set_;  // Set the active set of this Txn
+      set<Txn*> txn_active_set = active_set_;
       active_set_.insert(txn);           // Insert this txn for others
 
       MODE_PRINT(DERROR("Sending transaction %lu for validation\n",
@@ -319,7 +319,25 @@ void TxnProcessor::RunOCCParallelScheduler() {
 
       txn = validation_result.first;    // Make referencing cleaner
 
+      if (!valid) {
+        DERROR("The active set has (pre-delete): ");
+        for (set<Txn*>::iterator it = active_set_.begin();
+             it != active_set_.end(); ++it) {
+          fprintf(stderr, "%lu\t", (*it)->unique_id_);
+        }
+        fprintf(stderr, "\n");
+      }
+
       active_set_.erase(txn);           // Remove from active_set
+
+      if (!valid) {
+        DERROR("The active set has (post-delete): ");
+        for (set<Txn*>::iterator it = active_set_.begin();
+             it != active_set_.end(); ++it) {
+          fprintf(stderr, "%lu\t", (*it)->unique_id_);
+        }
+        fprintf(stderr, "\n");
+      }
 
       if (valid) {                      // Transaction was successful
         txn->status_ = COMMITTED;
