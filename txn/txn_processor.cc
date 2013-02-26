@@ -9,8 +9,8 @@
 #include "txn/lock_manager.h"
 
 // Thread & queue counts for StaticThreadPool initialization.
-#define THREAD_COUNT 100
-#define QUEUE_COUNT 10
+#define THREAD_COUNT 10
+#define QUEUE_COUNT 100
 
 // Maximum number of transactions to deal with during validation and
 // post-validation.
@@ -256,11 +256,13 @@ void TxnProcessor::RunOCCParallelScheduler() {
 
   MODE_PRINT(DERROR("Running an OCC Parallel Scheduler\n"));
 
-  DIE("Parallel OCC is still being implemented");
+  // DIE("Parallel OCC is still being implemented");
 
   while (tp_.Active()) {
-    int counter = 0;                    // Counter to keep track of number of
-                                        // transactions that have been checked
+    int counter = 0;                     // Counter to keep track of number of
+                                         //  transactions that have been checked
+    pair<Txn*, bool> validation_result;  // Flag for if the transaction is valid
+                                         //  in the post-validation phase
 
     // Check for transactions waiting in the transaction queue
     if (txn_requests_.Pop(&txn)) {
@@ -302,10 +304,34 @@ void TxnProcessor::RunOCCParallelScheduler() {
                     &TxnProcessor::ValidateTxn,
                     txn,
                     txn_active_set));
+
+      ++counter;
     }
 
     // Reset the counter in order to check post-validated
     counter = 0;
+    while (counter < POST_VALIDATION_MAX &&  // Appropriate no. of post-valids
+           validated_txns_.Pop(&validation_result)) {
+      bool valid = validation_result.second;  // Make referencing easier
+
+      MODE_PRINT(DERROR("Transaction %lu has completed validation with %d\n",
+                        (validation_result.first)->unique_id_, valid));
+
+      txn = validation_result.first;    // Make referencing cleaner
+
+      active_set_.erase(txn);           // Remove from active_set
+
+      if (valid) {                      // Transaction was successful
+        txn->status_ = COMMITTED;
+        txn_results_.Push(txn);
+      } else {                          // Transaction was invalid
+        (txn->reads_).clear();          // Remove all the reads done by Txn
+        txn->status_ = INCOMPLETE;
+        txn_requests_.Push(txn);        // Send Txn back to get re-evaluated
+      }
+
+      ++counter;
+    }
   }
 }
 
@@ -347,4 +373,37 @@ void TxnProcessor::ApplyWrites(Txn* txn) {
 }
 
 void TxnProcessor::ValidateTxn(Txn *txn, set<Txn*> active_set) {
+  bool valid = true;                    // Flag to check validity of Txn
+
+  // Check the read and write sets of the transaction to ensure that nothing
+  // overlapped
+  for (map<Key, Value>::iterator it = txn->reads_.begin();
+       it != txn->reads_.end(); ++it) {
+    if (!valid)                         // Speed up process by breaking earlier
+      break;
+    if (storage_.Timestamp(it->first) > txn->occ_start_time_)  // INVALID!!
+      valid = false;
+  }
+
+  // validated_txns_.Push(pair<Txn*, bool>(txn, valid));
+  // Check the active set for overlapping read or write set
+  for (set<Txn*>::iterator it = active_set.begin();
+       it != active_set.end(); ++it) {
+    if (!valid)                         // Speed up process by breaking earlier
+      break;
+    for (map<Key, Value>::iterator it2 = (*it)->reads_.begin();  // reads_ of
+         it2 != (*it)->reads_.end(); ++it2) {                    //  active_set
+      if (txn->writeset_.count(it2->first)) {  // There is an intersection
+        valid = false;
+        break;
+      }
+    }
+  }
+
+  // If the transaction is valid, perform the writes for the transaction
+  if (valid)
+    ApplyWrites(txn);
+
+  // Set all transactions to 'valid'
+  validated_txns_.Push(pair<Txn*, bool>(txn, valid));
 }
