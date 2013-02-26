@@ -19,7 +19,8 @@
 #define POST_VALIDATION_MAX 100
 
 // Quick define for being specific to a MODE
-#define MODE_DEBUG P_OCC
+#define MODE_NONE -1
+#define MODE_DEBUG MODE_NONE
 #define MODE_PRINT(MSG) if (mode_ == MODE_DEBUG) { MSG; }
 
 TxnProcessor::TxnProcessor(CCMode mode)
