@@ -110,4 +110,3 @@ class TxnProcessor {
 };
 
 #endif  // _TXN_PROCESSOR_H_
-
