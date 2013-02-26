@@ -4,9 +4,11 @@
 #ifndef _TXN_PROCESSOR_H_
 #define _TXN_PROCESSOR_H_
 
+#include <utility>
 #include <deque>
 #include <map>
 #include <string>
+#include <set>
 
 #include "txn/common.h"
 #include "txn/lock_manager.h"
@@ -19,6 +21,7 @@
 using std::deque;
 using std::map;
 using std::string;
+using std::pair;
 
 // The TxnProcessor supports five different execution modes, corresponding to
 // the four parts of assignment 2, plus a simple serial (non-concurrent) mode.
@@ -71,6 +74,10 @@ class TxnProcessor {
   // transaction logic.
   void ExecuteTxn(Txn* txn);
 
+  // Does the validation phase for all the transactions. Upon completion,
+  // deposits the transaction back to the scheduler through 'validated_txns_'
+  void ValidateTxn(Txn *txn, set<Txn*> active_set);
+
   // Applies all writes performed by '*txn' to 'storage_'.
   //
   // Requires: txn->Status() is COMPLETED_C.
@@ -101,9 +108,16 @@ class TxnProcessor {
   // Queue of completed (but not yet committed/aborted) transactions.
   AtomicQueue<Txn*> completed_txns_;
 
+  // Queue of validated transactions that are ready to be committed/aborted
+  AtomicQueue<pair<Txn*, bool>> validated_txns_;
+
   // Queue of transaction results (already committed or aborted) to be returned
   // to client.
   AtomicQueue<Txn*> txn_results_;
+
+  // Active Set of the thread pool. Do not need this to be atomic because
+  // multiple threads never read and write this at the same time.
+  set<Txn*> active_set_;
 
   // Lock Manager used for LOCKING concurrency implementations.
   LockManager* lm_;

@@ -12,8 +12,13 @@
 #define THREAD_COUNT 100
 #define QUEUE_COUNT 10
 
+// Maximum number of transactions to deal with during validation and
+// post-validation.
+#define VALIDATION_MAX      1
+#define POST_VALIDATION_MAX 1
+
 // Quick define for being specific to a MODE
-#define MODE_DEBUG OCC
+#define MODE_DEBUG P_OCC
 #define MODE_PRINT(MSG) if (mode_ == MODE_DEBUG) { MSG; }
 
 TxnProcessor::TxnProcessor(CCMode mode)
@@ -222,7 +227,7 @@ void TxnProcessor::RunOCCScheduler() {
       }
 
       // If the transaction is valid, commit
-      if (valid) {
+      if (valid) {  // Could potentially check for Abort here
         MODE_PRINT(DERROR("Transaction %lu is valid!\n", txn->unique_id_));
         ApplyWrites(txn);
         txn->status_ = COMMITTED;
@@ -247,9 +252,61 @@ void TxnProcessor::RunOCCParallelScheduler() {
   // [For now, run serial scheduler in order to make it through the test
   // suite]
 
+  Txn *txn;                             // Transaction pointer for current Txn
+
   MODE_PRINT(DERROR("Running an OCC Parallel Scheduler\n"));
 
-  RunSerialScheduler();
+  DIE("Parallel OCC is still being implemented");
+
+  while (tp_.Active()) {
+    int counter = 0;                    // Counter to keep track of number of
+                                        // transactions that have been checked
+
+    // Check for transactions waiting in the transaction queue
+    if (txn_requests_.Pop(&txn)) {
+      txn->occ_start_time_ = GetTime();  // Record a new Transaction
+      MODE_PRINT(DERROR("New transaction %lu starting at %f\n", txn->unique_id_,
+                        txn->occ_start_time_));
+
+      // Start running the transaction in its own thread
+      tp_.RunTask(new Method<TxnProcessor, void, Txn *>(
+                    this,
+                    &TxnProcessor::ExecuteTxn,
+                    txn));
+    }
+
+    while (counter < VALIDATION_MAX &&   // Appropriate number of validations
+           completed_txns_.Pop(&txn)) {  //  and there is a transaction waiting
+      // If the transaction wants to abort, let it. Also check for errors
+      if (txn->Status() == COMPLETED_A) {
+        MODE_PRINT(DERROR("Transaction %lu is requesting an ABORT!\n",
+                          txn->unique_id_));
+        txn->status_ = ABORTED;
+        txn_results_.Push(txn);
+        continue;
+      } else if (txn->Status() != COMPLETED_C) {
+        // Invalid Txn Status!
+        DIE("Completed Txn has invalid TxnStatus: " << txn->Status());
+      }
+
+      // The transaction is set on committing. Send it for validation
+      set<Txn*> txn_active_set = active_set_;  // Set the active set of this Txn
+      active_set_.insert(txn);           // Insert this txn for others
+
+      MODE_PRINT(DERROR("Sending transaction %lu for validation\n",
+                        txn->unique_id_));
+
+      // Validate the transaction in a separate thread
+      tp_.RunTask(new Method<TxnProcessor, void, Txn *, set<Txn*> >(
+                    this,
+                    &TxnProcessor::ValidateTxn,
+                    txn,
+                    txn_active_set));
+    }
+
+    // Reset the counter in order to check post-validated
+    counter = 0;
+  }
 }
 
 void TxnProcessor::ExecuteTxn(Txn* txn) {
@@ -287,4 +344,7 @@ void TxnProcessor::ApplyWrites(Txn* txn) {
 
   // Set status to committed.
   txn->status_ = COMMITTED;
+}
+
+void TxnProcessor::ValidateTxn(Txn *txn, set<Txn*> active_set) {
 }
