@@ -35,7 +35,6 @@ bool LockManagerA::WriteLock(Txn* txn, const Key& key) {
     deque<LockRequest> *d = lock_deq->second;
     d->push_back(LockRequest(EXCLUSIVE, txn));
     std::cout<<"LockRequest added to deque..." <<std::endl;
-
     // signal instant lock access if deque is empty
     if (d->size() == 1){
       std::cout<<"ready for lock! return true" <<std::endl;
@@ -44,6 +43,16 @@ bool LockManagerA::WriteLock(Txn* txn, const Key& key) {
     // signal no lock yet granted if deque not empty
     else{
       std::cout<<"NOT ready for lock! return FALSE" <<std::endl;
+      // add to txn_waits_ with proper lock count incrementation
+      unordered_map<Txn*, int>::iterator no_lock = txn_waits_.find(txn);
+      // if not already in wait list add
+      if (no_lock == txn_waits_.end()){
+	txn_waits_.insert(pair <Txn*, int>(txn,1));
+      }
+      //else increment 
+      else{
+	++(no_lock->second);
+      }
       return false;
     }
   }
@@ -69,18 +78,31 @@ bool LockManagerA::ReadLock(Txn* txn, const Key& key) {
 // (Hint: Use 'LockManager::txn_waits_' defined below.)
 void LockManagerA::Release(Txn* txn, const Key& key) {
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
-  
-  
-  std::cout<<"Status - deque found!"<<std::endl;
-  deque<LockRequest>::iterator l = lock_deq->second->begin(); // holds txn
-  if (l == lock_deq->second->end())
-    return UNLOCKED;
-  do {
-    std::cout<<"Status: adding new txn to owners: - " <<l->txn_<<std::endl;
-    owners->push_back(l->txn_);
-    ++l;
-  } while (l != lock_deq->second->end() && l->mode_ != EXCLUSIVE);
-  
+
+  if (lock_deq != lock_table_.end()){                // if lock has been issued before    
+    deque<LockRequest>::iterator l = lock_deq->second->begin(); // deque holds txn
+
+    if (l == lock_deq->second->end())
+      return;
+
+    do {
+      std::cout<<"Release: checking for unlock: - " <<l->txn_<<std::endl;
+
+      if(l->txn_ == txn){
+	// Release Lock
+	std::cout<<"Release: Found Lock to release!  -  " <<l->txn_<<std::endl;
+	
+	lock_deq->second->erase(l);
+	// pull next object from erase, 
+	// check if it's real, lock logic
+	// decrement in txn_waits
+	// if 0, add to ready_txns
+	
+	break;
+      }
+      ++l;
+    } while (l != lock_deq->second->end() && l->mode_ != EXCLUSIVE);
+  }
 }
 
 
