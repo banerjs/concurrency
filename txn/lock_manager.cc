@@ -21,11 +21,12 @@ bool LockManagerA::WriteLock(Txn* txn, const Key& key) {
   
   if (lock_deq == lock_table_.end()){                  // if not found
     std::cout<<"Key Not Found..." <<std::endl;
-    deque<LockRequest> deq_insert = deque<LockRequest>();   // make new deque
+    deque<LockRequest> *deq_insert = new deque<LockRequest>();   // make new deque
     std::cout<<"new deque made..." <<std::endl;
-    deq_insert.push_back(LockRequest(EXCLUSIVE, txn)); // add LockRequest Object to deque
+    LockRequest *tr = new LockRequest(EXCLUSIVE, txn);
+    deq_insert->push_back(*tr); // add LockRequest Object to deque
     std::cout<<"LockRequest added to deque..." <<std::endl;
-    lock_table_.insert(pair<Key, deque<LockRequest>*>(key, &deq_insert)); // add deque to hash
+    lock_table_.insert(pair<Key, deque<LockRequest>*>(key, deq_insert)); // add deque to hash
     std::cout<<"inserted deq into hash..." <<std::endl;
     return true; // instant lock
   }
@@ -54,10 +55,32 @@ bool LockManagerA::ReadLock(Txn* txn, const Key& key) {
   return WriteLock(txn, key);
 }
 
+// Releases lock held by 'txn' on 'key', or cancels any pending request for
+// a lock on 'key' by 'txn'. If 'txn' held an EXCLUSIVE lock on 'key' (or was
+// the sole holder of a SHARED lock on 'key'), then the next request(s) in the
+// request queue is granted. If the granted request(s) corresponds to a
+// transaction that has now acquired ALL of its locks, that transaction is
+// appended to the 'ready_txns_' queue.
+//
+// CPSC 438/538:
+// IMPORTANT NOTE: In order to know WHEN a transaction is ready to run, you
+// may need to track its lock acquisition progress during the lock request
+// process.
+// (Hint: Use 'LockManager::txn_waits_' defined below.)
 void LockManagerA::Release(Txn* txn, const Key& key) {
-  // CPSC 438/538:
-  //
-  // Implement this method!
+  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
+  
+  
+  std::cout<<"Status - deque found!"<<std::endl;
+  deque<LockRequest>::iterator l = lock_deq->second->begin(); // holds txn
+  if (l == lock_deq->second->end())
+    return UNLOCKED;
+  do {
+    std::cout<<"Status: adding new txn to owners: - " <<l->txn_<<std::endl;
+    owners->push_back(l->txn_);
+    ++l;
+  } while (l != lock_deq->second->end() && l->mode_ != EXCLUSIVE);
+  
 }
 
 
@@ -68,19 +91,24 @@ LockMode LockManagerA::Status(const Key& key, vector<Txn*>* owners) {
   std::cout<<"Status: entered function" <<std::endl;
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
   std::cout<<"Status: declared lock_deq" <<std::endl;
+  owners->clear(); // clear old lock owners
   if (lock_deq == lock_table_.end()){        // if not found
     return UNLOCKED;
   }
   else{ // if deque found, find all Txn's and add to owners
-    std::cout<<"Status - deque found!" <<std::endl;
-    for(deque<LockRequest>::iterator l = lock_deq->second->begin();
-	l != lock_deq->second->end(); ++l){
-      std::cout<<"Status: adding new txn to owners: - " <<l->txn_->ReturnID()<<std::endl;
+    std::cout<<"Status - deque found!"<<std::endl;
+    deque<LockRequest>::iterator l = lock_deq->second->begin(); // holds txn
+    if (l == lock_deq->second->end())
+      return UNLOCKED;
+    do {
+      std::cout<<"Status: adding new txn to owners: - " <<l->txn_<<std::endl;
       owners->push_back(l->txn_);
-    }
+      ++l;
+    } while (l != lock_deq->second->end() && l->mode_ != EXCLUSIVE);
   }
   return EXCLUSIVE;
 }
+
 
 LockManagerB::LockManagerB(deque<Txn*>* ready_txns) {
   ready_txns_ = ready_txns;
