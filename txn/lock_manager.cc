@@ -254,7 +254,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
                 if (edge_case->mode_ == EXCLUSIVE && new_unlock->second > 0) {
                   break;
                 }
-                DERROR("EDGE: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) next->txn_);
+                DERROR("EDGE: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) edge_case->txn_);
                 int returned_value = ReduceLockCount(new_unlock->second); // Decrement
                 if (returned_value == OK_EXECUTE){              // if no more locks
 		  txn_waits_.erase(new_unlock);            // remove from lockwait deque
