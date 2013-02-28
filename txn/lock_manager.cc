@@ -227,13 +227,46 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
       std::cout<<"Release: checking for unlock: - " <<l->txn_<<std::endl;
       if(l->txn_ == txn){// found Lock to Release
 	std::cout<<"Release: Found Lock to release!  -  " <<l->txn_<<std::endl;
+	
+
 	// Not at begining case
 	if(l != lock_deq->second->begin()){
+
+	  if(l->mode_ == EXCLUSIVE){
+	    std::cout<<"Release: Pos exclusive edge case"<<std::endl;
+	    deque<LockRequest>::iterator edge_case = lock_deq->second->begin();
+	    // Cycle through before exclusive to remove checking if all shared
+	    int all_share = 0;
+	    for(edge_case = lock_deq->second->begin();edge_case != l; ++edge_case){
+	      if(edge_case->mode_ == EXCLUSIVE)
+		all_share = 1;
+	      std::cout<<"--- Release: Pre-shared check\n";
+	    }
+	    //if all previous are shared
+	    if(all_share == 0){
+	      unordered_map<Txn*, int>::iterator new_unlock= txn_waits_.find(l->txn_);  // find newly unlocked txn
+	      edge_case = l+1;
+	      while(edge_case!=lock_deq->second->end() && edge_case->mode_!=EXCLUSIVE){
+		std::cout<<"--- Release: Into While\n";
+		new_unlock = txn_waits_.find(edge_case->txn_);
+		--(new_unlock->second);                      // decrement the lock count
+		if (new_unlock->second == 0){              // if no more locks
+		  std::cout<<"------ Release: In the IF!\n";
+		  txn_waits_.erase(new_unlock);            // remove from lockwait deque
+		  ready_txns_->push_back(edge_case->txn_);       // add to ready deque
+		}
+		++edge_case;
+	      }
+	    }
+	  }
 	  std::cout<<"--- Release: Not Lock Holder release"<<std::endl;
 	  lock_deq->second->erase(l);
 	  txn_waits_.erase(l->txn_);
 	  return;
 	}
+	
+
+
 	// pull next LockRequest from erase
 	deque<LockRequest>::iterator next = lock_deq->second->erase(l);
 	// check if next LockRequest exists
