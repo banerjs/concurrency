@@ -96,7 +96,7 @@ void LockManagerA::Release(Txn* txn, const Key& key) {
             break;
           } else if (returned_value == DONT_EXECUTE ||
                      new_unlock->second < 0) {  // all zombie requests removed
-            if (returned_value)
+            if (returned_value == DONT_EXECUTE)
               txn_waits_.erase(new_unlock);
             next = lock_deq->second->erase(next);
             continue;
@@ -268,8 +268,9 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
               if (edge_case->mode_ == EXCLUSIVE && new_unlock->second > 0) {
                 break;
               }
-              DERROR("EDGE: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) edge_case->txn_);
+              DERROR("CASE 2: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) edge_case->txn_);
               int returned_value = ReduceLockCount(new_unlock->second); // Decrement
+              DERROR("CASE 2: Wait record(%d) is now associated for transaction 0x%lx\n", new_unlock->second, (unsigned long) edge_case->txn_);            
               if (returned_value == OK_EXECUTE){              // if no more locks
                 txn_waits_.erase(new_unlock);            // remove from lockwait deque
                 ready_txns_->push_back(edge_case->txn_);       // add to ready deque
@@ -307,7 +308,6 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
       }
       // get rid of req from deque and pull next LockRequest from erase
       deque<LockRequest>::iterator next = lock_deq->second->erase(l);
-      DERROR("Just released lock on 0x%lx\n", (unsigned long) l->txn_);
 
       // check if next LockRequest exists
       if (next != lock_deq->second->end()){
@@ -323,6 +323,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
           do {
             DERROR("CASE 2: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) next->txn_);
             int returned_value = ReduceLockCount(new_unlock->second); // reduce count
+            DERROR("CASE 2: Wait record(%d) is now associated for transaction 0x%lx\n", new_unlock->second, (unsigned long) next->txn_);            
             if (returned_value == OK_EXECUTE) {              // if no more locks
               txn_waits_.erase(new_unlock);             // remove from lockwait deque
               ready_txns_->push_back(next->txn_);       // add to ready deque
@@ -330,8 +331,9 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
                 break;
             } else if (returned_value == DONT_EXECUTE ||
                        new_unlock->second < 0) {
-              if (returned_value)
+              if (returned_value == DONT_EXECUTE) {
                 txn_waits_.erase(new_unlock);
+              }
               next = lock_deq->second->erase(next); // Remove the zombie request
               continue;
             }
