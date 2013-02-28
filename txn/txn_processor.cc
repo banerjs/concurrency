@@ -9,8 +9,8 @@
 #include "txn/lock_manager.h"
 
 // Thread & queue counts for StaticThreadPool initialization.
-#define THREAD_COUNT 100
-#define QUEUE_COUNT 10
+#define THREAD_COUNT 10
+#define QUEUE_COUNT 100
 
 TxnProcessor::TxnProcessor(CCMode mode)
     : mode_(mode), tp_(THREAD_COUNT, QUEUE_COUNT), next_unique_id_(1) {

@@ -82,8 +82,8 @@ void Benchmark(const vector<LoadGen*>& lg) {
     db_init[i] = 0;
 
   // For each MODE...
-  for (CCMode mode = SERIAL;
-      mode <= P_OCC;
+  for (CCMode mode = LOCKING_EXCLUSIVE_ONLY;
+      mode <= LOCKING;
       mode = static_cast<CCMode>(mode+1)) {
     // Print out mode name.
     cout << ModeToString(mode) << flush;
