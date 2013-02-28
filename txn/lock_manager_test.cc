@@ -1,10 +1,8 @@
 // Author: Alexander Thomson (thomson@cs.yale.edu)
 
 #include "txn/lock_manager.h"
-
 #include <set>
 #include <string>
-
 #include "utils/testing.h"
 
 using std::set;

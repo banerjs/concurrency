@@ -48,10 +48,12 @@ bool LockManagerA::WriteLock(Txn* txn, const Key& key) {
       // if not already in wait list add
       if (no_lock == txn_waits_.end()){
 	txn_waits_.insert(pair <Txn*, int>(txn,1));
+	std::cout<<"--- Write: new add: txn = "<<txn<<std::endl;
       }
       //else increment 
       else{
 	++(no_lock->second);
+	std::cout<<"--- Write: txn = "<<txn<<", and numLocks = "<< no_lock->second<<std::endl;
       }
       return false;
     }
@@ -88,20 +90,36 @@ void LockManagerA::Release(Txn* txn, const Key& key) {
     do {
       std::cout<<"Release: checking for unlock: - " <<l->txn_<<std::endl;
 
-      if(l->txn_ == txn){
-	// Release Lock
+      if(l->txn_ == txn){// found Lock to Release
 	std::cout<<"Release: Found Lock to release!  -  " <<l->txn_<<std::endl;
+
+	if(l != lock_deq->second->begin()){
+	  std::cout<<"--- Release: Not Lock Holder release"<<std::endl;
+	  lock_deq->second->erase(l);
+	  txn_waits_.erase(l->txn_);
+	  break;
+	}
+
+	// pull next LockRequest from erase
+	deque<LockRequest>::iterator next = lock_deq->second->erase(l);
 	
-	lock_deq->second->erase(l);
-	// pull next object from erase, 
-	// check if it's real, lock logic
-	// decrement in txn_waits
-	// if 0, add to ready_txns
-	
+	// check if next LockRequest exists
+	if (next != lock_deq->second->end()){
+	  // we know a next lockrequest exists and is EXCLUSIVE
+	  // Therefore decrement that lock in txn_waits_
+	  std::cout<<"Release: next lock in line exists!"<<std::endl;
+
+	  unordered_map<Txn*, int>::iterator new_unlock= txn_waits_.find(next->txn_);  // find newly unlocked txn
+	  --new_unlock->second;                      // decrement the lock count
+	  if (new_unlock->second == 0){              // if no more locks
+	    txn_waits_.erase(new_unlock);            // remove from lockwait deque
+	    ready_txns_->push_back(next->txn_);       // add to ready deque
+	  }
+	}
 	break;
       }
       ++l;
-    } while (l != lock_deq->second->end() && l->mode_ != EXCLUSIVE);
+    } while (l != lock_deq->second->end());
   }
 }
 
