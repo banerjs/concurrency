@@ -146,6 +146,13 @@ bool LockManagerB::WriteLock(Txn* txn, const Key& key) {
   //   fflush(stderr);
   // }
 
+  // First check for req after release
+  unordered_map<Txn*, int>::iterator found = txn_waits_.find(txn);
+  if (found != txn_waits_.end() && found->second < 0) {  // In the release phase
+    DERROR("0x%lx Requesting lock after release(%d)!\n", (unsigned long) txn, found->second);
+    return false;
+  }
+
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);  
 
   if (lock_deq == lock_table_.end()){                  // if not found
@@ -189,6 +196,13 @@ bool LockManagerB::ReadLock(Txn* txn, const Key& key) {
   //   fprintf(stderr, "\n");
   //   fflush(stderr);
   // }
+
+  // First check for req after release
+  unordered_map<Txn*, int>::iterator found = txn_waits_.find(txn);
+  if (found != txn_waits_.end() && found->second < 0) {  // In the release phase
+    return false;
+  }
+
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);  
   if (lock_deq == lock_table_.end()){                  // if not found
     deque<LockRequest> *deq_insert = new deque<LockRequest>();   // make new deque
@@ -238,6 +252,9 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
   //   fprintf(stderr, "\n");
   //   fflush(stderr);
   // }
+
+  DERROR("Releasing the following K,V pair: %lu, 0x%lx\n", key, (unsigned long) txn);
+
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
   if (lock_deq == lock_table_.end()){      // if lock has not been issued before
     return;
@@ -268,16 +285,19 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
               if (edge_case->mode_ == EXCLUSIVE && new_unlock->second > 0) {
                 break;
               }
-              DERROR("CASE 2: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) edge_case->txn_);
+              DERROR("%d: Wait record(%d) decrementing for transaction 0x%lx, %d\n", __LINE__, new_unlock->second, (unsigned long) edge_case->txn_, edge_case->mode_);
               int returned_value = ReduceLockCount(new_unlock->second); // Decrement
-              DERROR("CASE 2: Wait record(%d) is now associated for transaction 0x%lx\n", new_unlock->second, (unsigned long) edge_case->txn_);            
+              DERROR("%d: Wait record(%d) is now associated(%d) for transaction 0x%lx, %d\n", __LINE__, new_unlock->second, returned_value, (unsigned long) edge_case->txn_, edge_case->mode_);
               if (returned_value == OK_EXECUTE){              // if no more locks
+                DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) edge_case->txn_, edge_case->mode_);
                 txn_waits_.erase(new_unlock);            // remove from lockwait deque
                 ready_txns_->push_back(edge_case->txn_);       // add to ready deque
               } else if (returned_value == DONT_EXECUTE ||  // zombie lock req
                          new_unlock->second < 0) {
-                if (returned_value == DONT_EXECUTE)
+                if (returned_value == DONT_EXECUTE) {
+                  DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) edge_case->txn_, edge_case->mode_);
                   txn_waits_.erase(new_unlock);
+                }
                 edge_case = lock_deq->second->erase(edge_case);
                 continue;
               }
@@ -287,8 +307,12 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
         }
         unordered_map<Txn*, int>::iterator unlocked = txn_waits_.find(l->txn_);
         if (unlocked != txn_waits_.end()) {  // Mark as a zombie lock req
-          unlocked->second = 1 - unlocked->second;
+          if (unlocked->second > 0)
+            unlocked->second = 1 - unlocked->second;
+          else
+            ReduceLockCount(unlocked->second);
           if (unlocked->second == 0) {  // All zombie requests removed
+            DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) l->txn_, l->mode_);
             txn_waits_.erase(unlocked);
           }
         }
@@ -301,8 +325,12 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
       // deal with the entry in the txn_waits_ table first
       unordered_map<Txn*, int>::iterator unlocked = txn_waits_.find(l->txn_);
       if (unlocked != txn_waits_.end()) {  // Mark as a zombie lock req
-        unlocked->second = 1 - unlocked->second;
+        if (unlocked->second > 0)
+          unlocked->second = 1 - unlocked->second;
+        else
+          ReduceLockCount(unlocked->second);
         if (unlocked->second == 0) {  // All zombie requests removed
+          DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) l->txn_, l->mode_);
           txn_waits_.erase(unlocked);
         }
       }
@@ -320,25 +348,30 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
             DERROR("Waiting transaction (0x%lx) NOT in wait list\n", (unsigned long) next->txn_);
             DIE("Error in waiting list");
           }
-          do {
-            DERROR("CASE 2: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) next->txn_);
+          while(next != lock_deq->second->end()) {
+            DERROR("%d: Wait record(%d) decrementing for transaction 0x%lx, %d\n", __LINE__, new_unlock->second, (unsigned long) next->txn_, next->mode_);
             int returned_value = ReduceLockCount(new_unlock->second); // reduce count
-            DERROR("CASE 2: Wait record(%d) is now associated for transaction 0x%lx\n", new_unlock->second, (unsigned long) next->txn_);            
+            DERROR("%d: Wait record(%d) is now associated(%d) for transaction 0x%lx, %d\n", __LINE__, new_unlock->second, returned_value, (unsigned long) next->txn_, next->mode_);            
             if (returned_value == OK_EXECUTE) {              // if no more locks
+              DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) next->txn_, next->mode_);
               txn_waits_.erase(new_unlock);             // remove from lockwait deque
               ready_txns_->push_back(next->txn_);       // add to ready deque
-              if (next->mode_ == EXCLUSIVE)
-                break;
             } else if (returned_value == DONT_EXECUTE ||
                        new_unlock->second < 0) {
+              DERROR("%d: Entered this\n", __LINE__);
               if (returned_value == DONT_EXECUTE) {
+                DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) next->txn_, next->mode_);
                 txn_waits_.erase(new_unlock);
               }
               next = lock_deq->second->erase(next); // Remove the zombie request
               continue;
             }
+            if (next->mode_ == EXCLUSIVE)  // Check for the first iteration
+              break;
             ++next;
-          } while(next != lock_deq->second->end() && next->mode_ == SHARED);
+            if (next != lock_deq->second->end() && next->mode_ == EXCLUSIVE)  // Check for all following iterations
+              break;
+          }
           return;
         }
         //END of Cases
