@@ -106,6 +106,10 @@ LockManagerB::LockManagerB(deque<Txn*>* ready_txns) {
 }
 
 bool LockManagerB::WriteLock(Txn* txn, const Key& key) {
+  std::cout<<"------------------------------------------------"<<std::endl;
+  std::cout<<"                 Write                          "<<std::endl;
+  std::cout<<"------------------------------------------------"<<std::endl;
+
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);  
   if (lock_deq == lock_table_.end()){                  // if not found
     std::cout<<"Write:  Key Not Found..." <<std::endl;
@@ -149,6 +153,9 @@ bool LockManagerB::WriteLock(Txn* txn, const Key& key) {
 }
 
 bool LockManagerB::ReadLock(Txn* txn, const Key& key) {
+  std::cout<<"------------------------------------------------"<<std::endl;
+  std::cout<<"                 Read                           "<<std::endl;
+  std::cout<<"------------------------------------------------"<<std::endl;
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);  
   if (lock_deq == lock_table_.end()){                  // if not found
     std::cout<<"Read:  Key Not Found..." <<std::endl;
@@ -208,6 +215,9 @@ bool LockManagerB::ReadLock(Txn* txn, const Key& key) {
 }
 
 void LockManagerB::Release(Txn* txn, const Key& key) {
+  std::cout<<"------------------------------------------------"<<std::endl;
+  std::cout<<"                 Release                        "<<std::endl;
+  std::cout<<"------------------------------------------------"<<std::endl;
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
   if (lock_deq != lock_table_.end()){                // if lock has been issued before    
     deque<LockRequest>::iterator l = lock_deq->second->begin(); // deque holds txn
@@ -273,7 +283,9 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 }
 
 LockMode LockManagerB::Status(const Key& key, vector<Txn*>* owners) {
-  std::cout<<"Status: entered function" <<std::endl;
+  std::cout<<"------------------------------------------------"<<std::endl;
+  std::cout<<"                 Status                          "<<std::endl;
+  std::cout<<"------------------------------------------------"<<std::endl;
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
   LockMode mode = EXCLUSIVE;
   std::cout<<"Status: declared lock_deq" <<std::endl;
@@ -286,13 +298,21 @@ LockMode LockManagerB::Status(const Key& key, vector<Txn*>* owners) {
     deque<LockRequest>::iterator l = lock_deq->second->begin(); // holds txn
     if (l == lock_deq->second->end())
       return UNLOCKED;
-    do {
+
+    if(l->mode_ == EXCLUSIVE){
       std::cout<<"Status: adding new txn to owners: - " <<l->txn_<<" - with status = "<<l->mode_<<std::endl;
       owners->push_back(l->txn_);
-      if (l->mode_ != mode)
+      return EXCLUSIVE;
+    }
+
+    while (l != lock_deq->second->end() && l->mode_ != EXCLUSIVE){
+      std::cout<<"Status: adding new txn to owners: - " <<l->txn_<<" - with status = "<<l->mode_<<std::endl;
+      owners->push_back(l->txn_);
+      if(l->mode_ != mode){
 	mode = SHARED;
+      }
       ++l;
-    } while (l != lock_deq->second->end() && l->mode_ != EXCLUSIVE);
+    } 
   }
   return mode;
 }
