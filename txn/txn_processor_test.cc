@@ -82,7 +82,7 @@ void Benchmark(const vector<LoadGen*>& lg) {
     db_init[i] = 0;
 
   // For each MODE...
-  for (CCMode mode = LOCKING_EXCLUSIVE_ONLY;
+  for (CCMode mode = LOCKING;
       mode <= LOCKING;
       mode = static_cast<CCMode>(mode+1)) {
     // Print out mode name.
@@ -142,17 +142,17 @@ int main(int argc, char** argv) {
 
   vector<LoadGen*> lg;
 
-  cout << "Read only" << endl;
-  lg.push_back(new RMWLoadGen(10000, 10, 0, 0.0001));
-  lg.push_back(new RMWLoadGen(10000, 10, 0, 0.001));
-  lg.push_back(new RMWLoadGen(10000, 10, 0, 0.01));
-  lg.push_back(new RMWLoadGen(10000, 10, 0, 0.1));
+  // cout << "Read only" << endl;
+  // lg.push_back(new RMWLoadGen(10000, 10, 0, 0.0001));
+  // lg.push_back(new RMWLoadGen(10000, 10, 0, 0.001));
+  // lg.push_back(new RMWLoadGen(10000, 10, 0, 0.01));
+  // lg.push_back(new RMWLoadGen(10000, 10, 0, 0.1));
 
-  Benchmark(lg);
+  // Benchmark(lg);
 
-  for (uint32 i = 0; i < lg.size(); i++)
-    delete lg[i];
-  lg.clear();
+  // for (uint32 i = 0; i < lg.size(); i++)
+  //   delete lg[i];
+  // lg.clear();
 
   cout << "1% contention" << endl;
   lg.push_back(new RMWLoadGen(10000, 10, 10, 0.0001));

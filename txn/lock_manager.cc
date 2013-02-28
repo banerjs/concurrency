@@ -5,7 +5,20 @@
 
 #include "txn/lock_manager.h"
 
-#include <iostream>
+// Definitions for the return value of ReduceLockCount()
+#define DONT_EXECUTE -1
+#define STILL_WAIT    0
+#define OK_EXECUTE    1
+
+// Function definition to use to change the number of locks that a transaction
+// is waiting for. If the number of transactions is negative in 'txn_waits_',
+// then that implies that the trnsaction has aborted requests for locks before
+// it could get all of them. Do not execute in that case. 
+inline int ReduceLockCount(int &num_locks) {
+  int ret = (num_locks < 0) ? DONT_EXECUTE : OK_EXECUTE;
+  num_locks = num_locks - 1;
+  return (num_locks) ? STILL_WAIT : ret;
+}
 
 LockManagerA::LockManagerA(deque<Txn*>* ready_txns) {
   ready_txns_ = ready_txns;
@@ -71,11 +84,13 @@ void LockManagerA::Release(Txn* txn, const Key& key) {
 	  // we know a next lockrequest exists and is EXCLUSIVE
 	  // Therefore decrement that lock in txn_waits_
 	  unordered_map<Txn*, int>::iterator new_unlock= txn_waits_.find(next->txn_);  // find newly unlocked txn
-	  --new_unlock->second;                      // decrement the lock count
-	  if (new_unlock->second == 0){              // if no more locks
-	    txn_waits_.erase(new_unlock);            // remove from lockwait deque
-	    ready_txns_->push_back(next->txn_);       // add to ready deque
-	  }
+	  int returned_value = ReduceLockCount(new_unlock->second);
+          if (returned_value == OK_EXECUTE) {       // check if should wait...
+            txn_waits_.erase(new_unlock);           // remove from lockwait deque
+            ready_txns_->push_back(next->txn_);     // add to ready deque
+          } else if (returned_value == DONT_EXECUTE) {  // all zombie requests removed
+            txn_waits_.erase(new_unlock);
+          }
 	}
 	break;
       }
@@ -103,10 +118,21 @@ LockMode LockManagerA::Status(const Key& key, vector<Txn*>* owners) {
 }
 
 LockManagerB::LockManagerB(deque<Txn*>* ready_txns) {
+  DERROR("New test has begun\n");
   ready_txns_ = ready_txns;
 }
 
 bool LockManagerB::WriteLock(Txn* txn, const Key& key) {
+  if (DEBUG) {
+    DERROR("The wait list right now is: ");
+    for (unordered_map<Txn*, int>::iterator it = txn_waits_.begin();
+         it != txn_waits_.end(); ++it) {
+      fprintf(stderr,"(0x%lx,%d), ", (unsigned long) it->first, it->second);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
+  }
+
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);  
 
   if (lock_deq == lock_table_.end()){                  // if not found
@@ -128,9 +154,11 @@ bool LockManagerB::WriteLock(Txn* txn, const Key& key) {
       unordered_map<Txn*, int>::iterator no_lock = txn_waits_.find(txn);
       // if not already in wait list add
       if (no_lock == txn_waits_.end()){
+        DERROR("Wait record missing for transaction 0x%lx\n", (unsigned long) txn);
 	pair<Txn*, int> *tp = new pair<Txn*, int>(txn,1);
-	txn_waits_.insert(*tp);
-      } else {      //else increment 
+        txn_waits_.insert(*tp);
+      } else {      //else increment
+        DERROR("Wait record(%d) found for transaction 0x%lx\n", no_lock->second, (unsigned long) txn);
 	++(no_lock->second);
       }
       return false;
@@ -139,6 +167,15 @@ bool LockManagerB::WriteLock(Txn* txn, const Key& key) {
 }
 
 bool LockManagerB::ReadLock(Txn* txn, const Key& key) {
+  if (DEBUG) {
+    DERROR("The wait list right now is: ");
+    for (unordered_map<Txn*, int>::iterator it = txn_waits_.begin();
+         it != txn_waits_.end(); ++it) {
+      fprintf(stderr,"(0x%lx,%d), ", (unsigned long) it->first, it->second);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
+  }
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);  
   if (lock_deq == lock_table_.end()){                  // if not found
     deque<LockRequest> *deq_insert = new deque<LockRequest>();   // make new deque
@@ -166,9 +203,11 @@ bool LockManagerB::ReadLock(Txn* txn, const Key& key) {
       unordered_map<Txn*, int>::iterator no_lock = txn_waits_.find(txn);
       // if not already in wait list add
       if (no_lock == txn_waits_.end()){
+        DERROR("Wait record missing for transaction 0x%lx\n", (unsigned long) txn);
 	pair<Txn*, int> *tp = new pair<Txn*, int>(txn,1);
-	txn_waits_.insert(*tp);
+        txn_waits_.insert(*tp);
       } else {      //else increment
+        DERROR("Wait record(%d) found for transaction 0x%lx\n", no_lock->second, (unsigned long) txn);
 	++(no_lock->second);
       }
       return false;
@@ -177,6 +216,15 @@ bool LockManagerB::ReadLock(Txn* txn, const Key& key) {
 }
 
 void LockManagerB::Release(Txn* txn, const Key& key) {
+  if (DEBUG) {
+    DERROR("The wait list right now is: ");
+    for (unordered_map<Txn*, int>::iterator it = txn_waits_.begin();
+         it != txn_waits_.end(); ++it) {
+      fprintf(stderr,"(0x%lx,%d), ", (unsigned long) it->first, it->second);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
+  }
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
   if (lock_deq != lock_table_.end()){                // if lock has been issued before    
     deque<LockRequest>::iterator l = lock_deq->second->begin(); // deque holds txn
@@ -203,6 +251,8 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 	      edge_case = l+1;
 	      while(edge_case!=lock_deq->second->end() && edge_case->mode_!=EXCLUSIVE){
 		new_unlock = txn_waits_.find(edge_case->txn_);
+                DERROR("EDGE: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) edge_case->txn_);
+                
 		--(new_unlock->second);                      // decrement the lock count
 		if (new_unlock->second == 0){              // if no more locks
 		  txn_waits_.erase(new_unlock);            // remove from lockwait deque
@@ -226,6 +276,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 	  //Case 1 
 	  if(next->mode_ == SHARED && l->mode_ == SHARED){// releasing one of multiple shared lock
 	    lock_deq->second->erase(l);
+            DERROR("Erasure. Want to erase 0x%lx\n", (unsigned long) l->txn_);
 	    txn_waits_.erase(l->txn_);
 	    return;
 	  }
@@ -233,9 +284,11 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 	  else if(next->mode_ == SHARED && l->mode_ == EXCLUSIVE){// give lock to at least one shared
 	    unordered_map<Txn*, int>::iterator new_unlock= txn_waits_.find(next->txn_); // find newly unlocked txn
             if (new_unlock == txn_waits_.end()) {  // CHECK with Mike about procedure
-              DIE("Waiting transaction NOT in wait list");
+              DERROR("Waiting transaction (0x%lx) NOT in wait list\n", (unsigned long) next->txn_);
+              DIE("Error in waiting list");
             }
-	    do{
+	    do {
+              DERROR("CASE 2: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) next->txn_);
 	      --(new_unlock->second);                      // decrement the lock count
 	      if (new_unlock->second == 0){              // if no more locks
 		txn_waits_.erase(new_unlock);            // remove from lockwait deque
@@ -251,8 +304,10 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 		  (next->mode_ == EXCLUSIVE && l->mode_ == SHARED)){
 	    unordered_map<Txn*, int>::iterator new_unlock= txn_waits_.find(next->txn_);  // find newly unlocked txn
             if (new_unlock == txn_waits_.end()) {  // CHECK with Mike about procedure
-              DIE("Waiting transaction NOT in wait list")
+              DERROR("Waiting transaction (0x%lx) NOT in wait list\n", (unsigned long) next->txn_);
+              DIE("Error in waiting list");
             }
+            DERROR("CASE 3: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) next->txn_);
 	    --(new_unlock->second);                      // decrement the lock count
 	    if (new_unlock->second == 0){              // if no more locks
 	      txn_waits_.erase(new_unlock);            // remove from lockwait deque
