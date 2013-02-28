@@ -249,20 +249,33 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 	    if(all_share == 0){
 	      unordered_map<Txn*, int>::iterator new_unlock= txn_waits_.find(l->txn_);  // find newly unlocked txn
 	      edge_case = l+1;
-	      while(edge_case!=lock_deq->second->end() && edge_case->mode_!=EXCLUSIVE){
+	      while(edge_case!=lock_deq->second->end()) {
 		new_unlock = txn_waits_.find(edge_case->txn_);
-                DERROR("EDGE: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) edge_case->txn_);
-                
-		--(new_unlock->second);                      // decrement the lock count
-		if (new_unlock->second == 0){              // if no more locks
+                if (edge_case->mode_ == EXCLUSIVE && new_unlock->second > 0) {
+                  break;
+                }
+                int returned_value = ReduceLockCount(new_unlock->second); // Decrement
+                if (returned_value == OK_EXECUTE){              // if no more locks
 		  txn_waits_.erase(new_unlock);            // remove from lockwait deque
 		  ready_txns_->push_back(edge_case->txn_);       // add to ready deque
-		}
+		} else if (returned_value == DONT_EXECUTE ||  // zombie lock req
+                  new_unlock->second < 0) {
+                  if (returned_value == DONT_EXECUTE)
+                    txn_waits_.erase(new_unlock);
+                  edge_case = lock_deq->second->erase(edge_case);
+                  continue;
+                }
 		++edge_case;
 	      }
 	    }
 	  }
-	  txn_waits_.erase(l->txn_);
+	  unordered_map<Txn*, int>::iterator unlocked = txn_waits_.find(l->txn_);
+          if (unlocked != txn_waits_.end()) {  // Mark as a zombie lock req
+            unlocked->second = 1 - unlocked->second;
+            if (unlocked->second == 0) {  // All zombie requests removed
+              txn_waits_.erase(unlocked);
+            }
+          }
 	  lock_deq->second->erase(l);
 	  return;
 	}
