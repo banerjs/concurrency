@@ -83,7 +83,7 @@ void Benchmark(const vector<LoadGen*>& lg) {
 
   // For each MODE...
   for (CCMode mode = SERIAL;
-      mode <= P_OCC;
+      mode <= SERIAL;
       mode = static_cast<CCMode>(mode+1)) {
     // Print out mode name.
     cout << ModeToString(mode) << flush;
