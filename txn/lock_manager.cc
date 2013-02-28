@@ -16,7 +16,7 @@
 // it could get all of them. Do not execute in that case. 
 inline int ReduceLockCount(int &num_locks) {
   int ret = (num_locks < 0) ? DONT_EXECUTE : OK_EXECUTE;
-  num_locks = num_locks - 1;
+  num_locks = (num_locks < 0) ? num_locks + 1 : num_locks - 1;
   return (num_locks) ? STILL_WAIT : ret;
 }
 
@@ -289,13 +289,13 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
               int returned_value = ReduceLockCount(new_unlock->second); // Decrement
               DERROR("%d: Wait record(%d) is now associated(%d) for transaction 0x%lx, %d\n", __LINE__, new_unlock->second, returned_value, (unsigned long) edge_case->txn_, edge_case->mode_);
               if (returned_value == OK_EXECUTE){              // if no more locks
-                DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) edge_case->txn_, edge_case->mode_);
+                DERROR("%d: Executing. Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) edge_case->txn_, edge_case->mode_);
                 txn_waits_.erase(new_unlock);            // remove from lockwait deque
                 ready_txns_->push_back(edge_case->txn_);       // add to ready deque
               } else if (returned_value == DONT_EXECUTE ||  // zombie lock req
                          new_unlock->second < 0) {
                 if (returned_value == DONT_EXECUTE) {
-                  DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) edge_case->txn_, edge_case->mode_);
+                  DERROR("%d: Dying.Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) edge_case->txn_, edge_case->mode_);
                   txn_waits_.erase(new_unlock);
                 }
                 edge_case = lock_deq->second->erase(edge_case);
@@ -312,7 +312,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
           else
             ReduceLockCount(unlocked->second);
           if (unlocked->second == 0) {  // All zombie requests removed
-            DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) l->txn_, l->mode_);
+            DERROR("%d: Dying. Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) l->txn_, l->mode_);
             txn_waits_.erase(unlocked);
           }
         }
@@ -330,7 +330,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
         else
           ReduceLockCount(unlocked->second);
         if (unlocked->second == 0) {  // All zombie requests removed
-          DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) l->txn_, l->mode_);
+          DERROR("%d: Dying. Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) l->txn_, l->mode_);
           txn_waits_.erase(unlocked);
         }
       }
@@ -353,14 +353,13 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
             int returned_value = ReduceLockCount(new_unlock->second); // reduce count
             DERROR("%d: Wait record(%d) is now associated(%d) for transaction 0x%lx, %d\n", __LINE__, new_unlock->second, returned_value, (unsigned long) next->txn_, next->mode_);            
             if (returned_value == OK_EXECUTE) {              // if no more locks
-              DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) next->txn_, next->mode_);
+              DERROR("%d: Executing. Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) next->txn_, next->mode_);
               txn_waits_.erase(new_unlock);             // remove from lockwait deque
               ready_txns_->push_back(next->txn_);       // add to ready deque
             } else if (returned_value == DONT_EXECUTE ||
                        new_unlock->second < 0) {
-              DERROR("%d: Entered this\n", __LINE__);
               if (returned_value == DONT_EXECUTE) {
-                DERROR("%d: Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) next->txn_, next->mode_);
+                DERROR("%d: Dying. Bye bye 0x%lx, %d\n", __LINE__, (unsigned long) next->txn_, next->mode_);
                 txn_waits_.erase(new_unlock);
               }
               next = lock_deq->second->erase(next); // Remove the zombie request
