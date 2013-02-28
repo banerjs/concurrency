@@ -307,18 +307,15 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
       }
       // get rid of req from deque and pull next LockRequest from erase
       deque<LockRequest>::iterator next = lock_deq->second->erase(l);
+      DERROR("Just released lock on 0x%lx\n", (unsigned long) l->txn_);
 
       // check if next LockRequest exists
       if (next != lock_deq->second->end()){
-        // //Case 1 
-        // if(next->mode_ == SHARED && l->mode_ == SHARED){// releasing first of multiple shared lock
-        //   DERROR("Erased 0x%lx. Nothing need be done\n", (unsigned long) l->txn_);
-        //   return;
-        // }
         //Case 2
         if ((l->mode_ == SHARED && next->mode_ == EXCLUSIVE) ||
             l->mode_ == EXCLUSIVE) {  // give lock to at least one shared
           unordered_map<Txn*, int>::iterator new_unlock = txn_waits_.find(next->txn_); // find newly unlocked txn
+          
           if (new_unlock == txn_waits_.end()) {  // Should not happen!
             DERROR("Waiting transaction (0x%lx) NOT in wait list\n", (unsigned long) next->txn_);
             DIE("Error in waiting list");
@@ -329,6 +326,8 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
             if (returned_value == OK_EXECUTE) {              // if no more locks
               txn_waits_.erase(new_unlock);             // remove from lockwait deque
               ready_txns_->push_back(next->txn_);       // add to ready deque
+              if (next->mode_ == EXCLUSIVE)
+                break;
             } else if (returned_value == DONT_EXECUTE ||
                        new_unlock->second < 0) {
               if (returned_value)
@@ -340,23 +339,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
           } while(next != lock_deq->second->end() && next->mode_ == SHARED);
           return;
         }
-        //Case 3
-        // else if((next->mode_ == EXCLUSIVE && l->mode_ == EXCLUSIVE) ||
-        //         (next->mode_ == EXCLUSIVE && l->mode_ == SHARED)){
-        //   unordered_map<Txn*, int>::iterator new_unlock= txn_waits_.find(next->txn_);  // find newly unlocked txn
-        //   if (new_unlock == txn_waits_.end()) {  // CHECK with Mike about procedure
-        //     DERROR("Waiting transaction (0x%lx) NOT in wait list\n", (unsigned long) next->txn_);
-        //     DIE("Error in waiting list");
-        //   }
-        //   DERROR("CASE 3: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) next->txn_);
-        //   --(new_unlock->second);                      // decrement the lock count
-        //   if (new_unlock->second == 0){              // if no more locks
-        //     txn_waits_.erase(new_unlock);            // remove from lockwait deque
-        //     ready_txns_->push_back(next->txn_);       // add to ready deque
-        //   }
-        //   return;
-        // }
-        // //END of Cases
+        //END of Cases
       }
       break;
     }
