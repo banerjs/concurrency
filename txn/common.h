@@ -21,7 +21,6 @@ using std::string;
 // assert if in debug mode
 #define DCHECK(ARG) if (DEBUG) { assert(ARG); }
 
-<<<<<<< HEAD
 // print to stdout/stderr if in debug mode
 #define DPRINT(...) \
   if (DEBUG) { \
@@ -34,8 +33,6 @@ using std::string;
     fprintf(stderr, __VA_ARGS__); \
   }
 
-=======
->>>>>>> mrh2/test
 // print message and die
 #define DIE(MSG) \
   do { \
