@@ -60,8 +60,8 @@ void LockManagerA::Release(Txn* txn, const Key& key) {
     do {
       if(l->txn_ == txn){// found Lock to Release
 	if(l != lock_deq->second->begin()){
-	  txn_waits_.erase(l->txn_);
 	  lock_deq->second->erase(l);
+	  txn_waits_.erase(l->txn_);
 	  break;
 	}
 	// pull next LockRequest from erase
@@ -107,34 +107,30 @@ LockManagerB::LockManagerB(deque<Txn*>* ready_txns) {
 }
 
 bool LockManagerB::WriteLock(Txn* txn, const Key& key) {
-
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);  
+
   if (lock_deq == lock_table_.end()){                  // if not found
     deque<LockRequest> *deq_insert = new deque<LockRequest>();   // make new deque
     LockRequest *tr = new LockRequest(EXCLUSIVE, txn);
     deq_insert->push_back(*tr); // add LockRequest Object to deque
     lock_table_.insert(pair<Key, deque<LockRequest>*>(key, deq_insert)); // add deque to hash
     return true; // instant lock
-  }
-  else{ // if deque found, add Lock Request regardless of content
+  } else { // if deque found, add Lock Request regardless of content
     deque<LockRequest> *d = lock_deq->second;
     LockRequest *tr = new LockRequest(EXCLUSIVE, txn);
     d->push_back(*tr);
+
     // signal instant lock access if deque is empty
     if (d->size() == 1){
       return true;
-    }
-    // signal no lock yet granted if deque not empty
-    else{
+    } else {    // signal no lock yet granted if deque not empty
       // add to txn_waits_ with proper lock count incrementation
       unordered_map<Txn*, int>::iterator no_lock = txn_waits_.find(txn);
       // if not already in wait list add
       if (no_lock == txn_waits_.end()){
 	pair<Txn*, int> *tp = new pair<Txn*, int>(txn,1);
 	txn_waits_.insert(*tp);
-      }
-      //else increment 
-      else{
+      } else {      //else increment 
 	++(no_lock->second);
       }
       return false;
@@ -150,20 +146,14 @@ bool LockManagerB::ReadLock(Txn* txn, const Key& key) {
     deq_insert->push_back(*tr); // add LockRequest Object to deque
     lock_table_.insert(pair<Key, deque<LockRequest>*>(key, deq_insert)); // add deque to hash
     return true; // instant lock
-  }
-  else{ // if deque found, add Lock Request regardless of content
+  } else {  // if deque found, add Lock Request regardless of content
     deque<LockRequest> *d = lock_deq->second;
     LockRequest *tr = new LockRequest(SHARED, txn);
     d->push_back(*tr);
     // signal instant lock access if deque is empty
     if (d->size() == 1){
       return true;
-    }
-    // signal no lock yet granted if deque not empty
-    else{
-      
-
-
+    } else {    // signal no lock yet granted if deque not empty
       for(deque<LockRequest>::iterator  share_check = lock_deq->second->begin();
 	  share_check != lock_deq->second->end() && share_check->mode_ != EXCLUSIVE;
 	  ++share_check){
@@ -172,17 +162,13 @@ bool LockManagerB::ReadLock(Txn* txn, const Key& key) {
 	}
       }
 
-
-
       // add to txn_waits_ with proper lock count incrementation
       unordered_map<Txn*, int>::iterator no_lock = txn_waits_.find(txn);
       // if not already in wait list add
       if (no_lock == txn_waits_.end()){
 	pair<Txn*, int> *tp = new pair<Txn*, int>(txn,1);
 	txn_waits_.insert(*tp);
-      }
-      //else increment 
-      else{
+      } else {      //else increment
 	++(no_lock->second);
       }
       return false;
