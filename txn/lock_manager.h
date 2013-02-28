@@ -9,12 +9,15 @@
 #include <deque>
 #include <map>
 #include <vector>
+#include <utility>
 
 #include "txn/common.h"
+#include "txn/txn.h"
 
 using std::map;
 using std::deque;
 using std::vector;
+using std::pair;
 using std::tr1::unordered_map;
 
 class Txn;
@@ -136,4 +139,3 @@ class LockManagerB : public LockManager {
 };
 
 #endif  // _LOCK_MANAGER_H_
-
