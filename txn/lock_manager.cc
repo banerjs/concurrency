@@ -237,11 +237,11 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 	    return;
 	  }
 	  //Case 2
-	  else if(next->mode == SHARED && l->mode_ == EXCLUSIVE){// give lock to at least one shared
+	  else if(next->mode_ == SHARED && l->mode_ == EXCLUSIVE){// give lock to at least one shared
 	    std::cout<<"--- Release: EXCLUSIVE followed by SHARED"<<std::endl;
 	    unordered_map<Txn*, int>::iterator new_unlock= txn_waits_.find(next->txn_); // find newly unlocked txn	    
 	    do{
-	      new_unlock= txn_waits_.find(next->txn_)
+	      new_unlock= txn_waits_.find(next->txn_);
 	      --new_unlock->second;                      // decrement the lock count
 	      if (new_unlock->second == 0){              // if no more locks
 		txn_waits_.erase(new_unlock);            // remove from lockwait deque
@@ -249,12 +249,12 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 	      }
  	      ++new_unlock;
 	    }
-	    while(new_unlock != txn_waits_.end() && next->mode == SHARED);
+	    while(new_unlock != txn_waits_.end() && next->mode_ == SHARED);
 	    return;
 	  }
 	  //Case 3
-	  else if(next->mode == EXCLUSIVE && l->mode_ == EXCLUSIVE ||
-		  next->mode == EXCLUSIVE && l->mode_ == SHARED){
+	  else if((next->mode_ == EXCLUSIVE && l->mode_ == EXCLUSIVE) ||
+		  (next->mode_ == EXCLUSIVE && l->mode_ == SHARED)){
 	    std::cout<<"--- Release: EITHER followed by EXCLUSIVE"<<std::endl;
 	    unordered_map<Txn*, int>::iterator new_unlock= txn_waits_.find(next->txn_);  // find newly unlocked txn
 	    --new_unlock->second;                      // decrement the lock count
