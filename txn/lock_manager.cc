@@ -254,6 +254,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
                 if (edge_case->mode_ == EXCLUSIVE && new_unlock->second > 0) {
                   break;
                 }
+                DERROR("EDGE: Wait record(%d) decrementing for transaction 0x%lx\n", new_unlock->second, (unsigned long) next->txn_);
                 int returned_value = ReduceLockCount(new_unlock->second); // Decrement
                 if (returned_value == OK_EXECUTE){              // if no more locks
 		  txn_waits_.erase(new_unlock);            // remove from lockwait deque
@@ -281,16 +282,22 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 	}
 	
 
-
+        // else: these requests are at the beginning of the deque
 	// pull next LockRequest from erase
 	deque<LockRequest>::iterator next = lock_deq->second->erase(l);
 	// check if next LockRequest exists
 	if (next != lock_deq->second->end()){
 	  //Case 1 
 	  if(next->mode_ == SHARED && l->mode_ == SHARED){// releasing one of multiple shared lock
-	    lock_deq->second->erase(l);
             DERROR("Erasure. Want to erase 0x%lx\n", (unsigned long) l->txn_);
-	    txn_waits_.erase(l->txn_);
+            unordered_map<Txn*, int>::iterator unlocked = txn_waits_.find(l->txn_);
+            if (unlocked != txn_waits_.end()) {  // Mark as a zombie lock req
+              unlocked->second = 1 - unlocked->second;
+              if (unlocked->second == 0) {  // All zombie requests removed
+                txn_waits_.erase(unlocked);
+              }
+            }
+	    lock_deq->second->erase(l);
 	    return;
 	  }
 	  //Case 2
