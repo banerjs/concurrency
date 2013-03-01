@@ -11,35 +11,31 @@ LockManagerA::LockManagerA(deque<Txn*>* ready_txns) {
 }
 
 bool LockManagerA::WriteLock(Txn* txn, const Key& key) {
-  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
-  if (lock_deq == lock_table_.end()){                  // if not found
-    deque<LockRequest> *deq_insert = new deque<LockRequest>();   // make new deque
+  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq =
+    lock_table_.find(key);
+  if (lock_deq == lock_table_.end()) {                          // If not found
+    deque<LockRequest> *deq_insert = new deque<LockRequest>();  // New deque
     LockRequest *tr = new LockRequest(EXCLUSIVE, txn);
-    deq_insert->push_back(*tr); // add LockRequest Object to deque
-    lock_table_.insert(pair<Key, deque<LockRequest>*>(key, deq_insert)); // add deque to hash
-    txn_waits_.insert(pair<Txn*, int>(txn, 0)); // Notify the system that txn is alive
-    return true; // instant lock
-  }
-  else{ // if deque found, add Lock Request regardless of content
+    deq_insert->push_back(*tr);                           // add LockRequest
+    lock_table_.insert(pair<Key, deque<LockRequest>*>(key, deq_insert));
+    txn_waits_.insert(pair<Txn*, int>(txn, 0));           // Notify txn is alive
+    return true;                                          // instant lock
+  } else {  // if deque found, add Lock Request regardless of content
     deque<LockRequest> *d = lock_deq->second;
     d->push_back(LockRequest(EXCLUSIVE, txn));
     // signal instant lock access if deque is empty
     if (d->size() == 1) {
-      txn_waits_.insert(pair<Txn*, int>(txn, 0)); // Notify system that the txn is alive
+      txn_waits_.insert(pair<Txn*, int>(txn, 0));         // Notify txn is alive
       return true;
-    }
-    // signal no lock yet granted if deque not empty
-    else{
+    } else {  // signal no lock yet granted if deque not empty
       // add to txn_waits_ with proper lock count incrementation
       unordered_map<Txn*, int>::iterator no_lock = txn_waits_.find(txn);
       // if not already in wait list add
-      if (no_lock == txn_waits_.end()){
-	pair<Txn*, int> *tp = new pair<Txn*, int>(txn,1);
-	txn_waits_.insert(*tp);
-      }
-      //else increment 
-      else{
-	++(no_lock->second);
+      if (no_lock == txn_waits_.end()) {
+        pair<Txn*, int> *tp = new pair<Txn*, int>(txn, 1);
+        txn_waits_.insert(*tp);
+      } else {  // else increment
+        ++(no_lock->second);
       }
       return false;
     }
@@ -53,29 +49,31 @@ bool LockManagerA::ReadLock(Txn* txn, const Key& key) {
 }
 
 void LockManagerA::Release(Txn* txn, const Key& key) {
-  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
-  if (lock_deq != lock_table_.end()){                // if lock has been issued before    
-    deque<LockRequest>::iterator l = lock_deq->second->begin(); // deque holds txn
-
+  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq =
+    lock_table_.find(key);
+  if (lock_deq != lock_table_.end()) {  // if lock has been issued before
+    deque<LockRequest>::iterator l =  // deque holds txn
+      lock_deq->second->begin();
     while (l != lock_deq->second->end()) {
-      if(l->txn_ == txn){  // found Lock to Release
-	if(l != lock_deq->second->begin()){  // Does not have the lock now
+      if (l->txn_ == txn) {  // found Lock to Release
+        if (l != lock_deq->second->begin()) {  // Does not have the lock now
           unordered_map<Txn*, int>::iterator zombie = txn_waits_.find(txn);
           if (zombie != txn_waits_.end()) {  // This is not a zombie request
             txn_waits_.erase(txn);  // Make the txn a zombie
           }
-	  lock_deq->second->erase(l);
-	  break;
-	}
-	// pull next LockRequest from erase
-	deque<LockRequest>::iterator next = lock_deq->second->erase(l);
-	// check if next LockRequest exists
-	while (next != lock_deq->second->end()){
-	  // we know a next lockrequest exists and is EXCLUSIVE
-	  // Therefore decrement that lock in txn_waits_
-	  unordered_map<Txn*, int>::iterator zombie= txn_waits_.find(next->txn_);  // check for zombie
+          lock_deq->second->erase(l);
+          break;
+        }
+        // pull next LockRequest from erase
+        deque<LockRequest>::iterator next = lock_deq->second->erase(l);
+        // check if next LockRequest exists
+        while (next != lock_deq->second->end()) {
+          // we know a next lockrequest exists and is EXCLUSIVE
+          // Therefore decrement that lock in txn_waits_
+          unordered_map<Txn*, int>::iterator zombie=
+            txn_waits_.find(next->txn_);  // check for zombie
           if (zombie == txn_waits_.end()) {  // This transaction is a zombie
-            next = lock_deq->second->erase(next); // Remove the zombie
+            next = lock_deq->second->erase(next);  // Remove the zombie
             continue;
           } else if (zombie->second > 0) {  // Valid txn waiting
             --(zombie->second);
@@ -83,13 +81,13 @@ void LockManagerA::Release(Txn* txn, const Key& key) {
               ready_txns_->push_back(next->txn_);
             }
           } else {  // zombie->second == 0. Found a txn with all locks waiting
-            DIE("Invalid Txn. Waiting but with all locks!"); // Maybe do nothing
+            DIE("Invalid Txn. Waiting but with all locks!");
           }
           if (next->mode_ == EXCLUSIVE)  // Always true in this case
             break;
           ++next;
-	}
-	break;
+        }
+        break;
       }
       ++l;
     }
@@ -97,13 +95,13 @@ void LockManagerA::Release(Txn* txn, const Key& key) {
 }
 
 LockMode LockManagerA::Status(const Key& key, vector<Txn*>* owners) {
-  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
-  owners->clear(); // clear old lock owners
-  if (lock_deq == lock_table_.end()){        // if not found
+  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq =
+    lock_table_.find(key);
+  owners->clear();  // clear old lock owners
+  if (lock_deq == lock_table_.end()) {  // if not found
     return UNLOCKED;
-  }
-  else{ // if deque found, find all Txn's and add to owners
-    deque<LockRequest>::iterator l = lock_deq->second->begin(); // holds txn
+  } else {  // if deque found, find all Txn's and add to owners
+    deque<LockRequest>::iterator l = lock_deq->second->begin();  // holds txn
     if (l == lock_deq->second->end())
       return UNLOCKED;
     do {
@@ -120,30 +118,35 @@ LockManagerB::LockManagerB(deque<Txn*>* ready_txns) {
 }
 
 bool LockManagerB::WriteLock(Txn* txn, const Key& key) {
-  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
-  if (lock_deq == lock_table_.end()){                  // if not found
-    deque<LockRequest> *deq_insert = new deque<LockRequest>();   // make new deque
+  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq
+    = lock_table_.find(key);
+  if (lock_deq == lock_table_.end()) {  // if not found
+    deque<LockRequest> *deq_insert =
+      new deque<LockRequest>();   // make new deque
     LockRequest *tr = new LockRequest(EXCLUSIVE, txn);
-    deq_insert->push_back(*tr); // add LockRequest Object to deque
-    lock_table_.insert(pair<Key, deque<LockRequest>*>(key, deq_insert)); // add deque to hash
-    txn_waits_.insert(pair<Txn*, int>(txn, 0)); // Notify the system that txn is alive
-    return true; // instant lock
-  } else { // if deque found, add Lock Request regardless of content
+    deq_insert->push_back(*tr);  // add LockRequest Object to deque
+    // add deque to hash and notify the system that txn is alive
+    lock_table_.insert(pair<Key, deque<LockRequest>*>(key, deq_insert));
+    txn_waits_.insert(pair<Txn*, int>(txn, 0));
+    return true;  // instant lock
+  } else {  // if deque found, add Lock Request regardless of content
     deque<LockRequest> *d = lock_deq->second;
     d->push_back(LockRequest(EXCLUSIVE, txn));
     // signal instant lock access if deque is empty
     if (d->size() == 1) {
-      txn_waits_.insert(pair<Txn*, int>(txn, 0)); // Notify system that the txn is alive
+      // Notify system that the txn is alive
+      txn_waits_.insert(pair<Txn*, int>(txn, 0));
       return true;
     } else {  // signal no lock yet granted if deque not empty
       // add to txn_waits_ with proper lock count incrementation
-      unordered_map<Txn*, int>::iterator no_lock = txn_waits_.find(txn);
+      unordered_map<Txn*, int>::iterator no_lock =
+        txn_waits_.find(txn);
       // if not already in wait list add
-      if (no_lock == txn_waits_.end()){
-	pair<Txn*, int> *tp = new pair<Txn*, int>(txn,1);
-	txn_waits_.insert(*tp);
-      } else {  //else increment 
-	++(no_lock->second);
+      if (no_lock == txn_waits_.end()) {
+        pair<Txn*, int> *tp = new pair<Txn*, int>(txn, 1);
+        txn_waits_.insert(*tp);
+      } else {  // else increment
+        ++(no_lock->second);
       }
       return false;
     }
@@ -154,35 +157,40 @@ bool LockManagerB::WriteLock(Txn* txn, const Key& key) {
 }
 
 bool LockManagerB::ReadLock(Txn* txn, const Key& key) {
-  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
-  if (lock_deq == lock_table_.end()){                  // if not found
-    deque<LockRequest> *deq_insert = new deque<LockRequest>();   // make new deque
+  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq =
+    lock_table_.find(key);
+  if (lock_deq == lock_table_.end()) {  // if not found
+    deque<LockRequest> *deq_insert =
+      new deque<LockRequest>();  // make new deque
     LockRequest *tr = new LockRequest(SHARED, txn);
-    deq_insert->push_back(*tr); // add LockRequest Object to deque
-    lock_table_.insert(pair<Key, deque<LockRequest>*>(key, deq_insert)); // add deque to hash
-    txn_waits_.insert(pair<Txn*, int>(txn, 0)); // Notify the system that txn is alive
-    return true; // instant lock
-  } else { // if deque found, add Lock Request regardless of content
+    deq_insert->push_back(*tr);  // add LockRequest Object to deque
+    // add deque to hash and notify system that txn is alive
+    lock_table_.insert(pair<Key, deque<LockRequest>*>(key, deq_insert));
+    txn_waits_.insert(pair<Txn*, int>(txn, 0));
+    return true;  // instant lock
+  } else {  // if deque found, add Lock Request regardless of content
     deque<LockRequest> *d = lock_deq->second;
     d->push_back(LockRequest(SHARED, txn));
     // signal instant lock access if deque is empty
     if (d->size() == 1) {
-      txn_waits_.insert(pair<Txn*, int>(txn, 0)); // Notify system that the txn is alive
+      // Notify system that the txn is alive
+      txn_waits_.insert(pair<Txn*, int>(txn, 0));
       return true;
     } else {  // signal no lock yet granted if deque not empty
-      for(deque<LockRequest>::iterator share_check = lock_deq->second->begin();
-          share_check != lock_deq->second->end() && share_check->mode_ != EXCLUSIVE;
-          ++share_check){
-        if (share_check->txn_ == txn){  // Only shared locks held on key so far
+      for (deque<LockRequest>::iterator share_check = lock_deq->second->begin();
+          share_check != lock_deq->second->end() &&
+             share_check->mode_ != EXCLUSIVE;
+          ++share_check) {
+        if (share_check->txn_ == txn) {  // Only shared locks held on key so far
           unordered_map<Txn*, int>::iterator found = txn_waits_.find(txn);
           if (found == txn_waits_.end()) {  // This txn does not exist yet
-            txn_waits_.insert(pair<Txn*, int>(txn, 0)); // Notify system not a
+            txn_waits_.insert(pair<Txn*, int>(txn, 0));  // Notify system not a
                                                         // zombie
           }  // else no need to do anything
-          return true; // can grant shared read lock right away
+          return true;  // can grant shared read lock right away
         }
       }
-      
+
       // else there is something blocking txn from getting a lock. Act
       // appropriately
       unordered_map<Txn*, int>::iterator found = txn_waits_.find(txn);
@@ -200,14 +208,14 @@ bool LockManagerB::ReadLock(Txn* txn, const Key& key) {
 }
 
 void LockManagerB::Release(Txn* txn, const Key& key) {
-  DERROR("Releasing 0x%lx\'s lock on %lu\n", (unsigned long) txn, key);
-
-  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
-  if (lock_deq == lock_table_.end()) {    // if lock has not been issued before
-    return;                               //   lock does not exist
+  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq =
+    lock_table_.find(key);
+  if (lock_deq == lock_table_.end()) {  // if lock has not been issued before
+    return;                             //   lock does not exist
   }
 
-  deque<LockRequest>::iterator l = lock_deq->second->begin(); // deque holds txn
+  deque<LockRequest>::iterator l =
+    lock_deq->second->begin();  // deque holds txn
   while (l != lock_deq->second->end()) {  // while there are txns to loop over
     if (l->txn_ != txn) {  // Continue to beginning of loop if txn not found
       ++l;                 // Increment the position of the iterator
@@ -215,10 +223,9 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
     }
 
     LockMode txn_mode = l->mode_;  // Save the mode for later use
-    
+
     // else the transaction has been found in this section of the loop
     if (l == lock_deq->second->begin()) {  // This is the beginning of the deque
-
       // Mark the transaction as a zombie
       unordered_map<Txn*, int>::iterator found = txn_waits_.find(txn);
       if (found != txn_waits_.end()) {  // System thinks txn is alive
@@ -236,7 +243,8 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
         // zombie). Otherwise don't do anything because it's been taken care of
         // elsewhere.
         if (txn_mode == EXCLUSIVE) {  // Grant the following txns
-          unordered_map<Txn*, int>::iterator unlock = txn_waits_.find(next->txn_);
+          unordered_map<Txn*, int>::iterator unlock =
+            txn_waits_.find(next->txn_);
           if (unlock == txn_waits_.end()) {  // Found a zombie
             next = lock_deq->second->erase(next);  // Update iterator
             continue;
@@ -256,7 +264,8 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
           }
         } else {  // txn_mode == SHARED. This transaction was a shared
           if (next->mode_ == SHARED) {  // Deal with edge case of zombie X lock
-            unordered_map<Txn*, int>::iterator unlock = txn_waits_.find(next->txn_);
+            unordered_map<Txn*, int>::iterator unlock =
+              txn_waits_.find(next->txn_);
             if (unlock->second == 0) {  // Probably already has a lock. So break
               break;
             } else {
@@ -272,7 +281,8 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
                 break;
             }
           } else {  // Check for zombie, else send to ready and break
-            unordered_map<Txn*, int>::iterator found = txn_waits_.find(next->txn_);
+            unordered_map<Txn*, int>::iterator found =
+              txn_waits_.find(next->txn_);
             if (found == txn_waits_.end()) {  // found a zombie
               next = lock_deq->second->erase(next);  // Update next
               continue;
@@ -305,7 +315,8 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
           // Remove the txn from the deque
           deque<LockRequest>::iterator next = lock_deq->second->erase(l);
           while (next != lock_deq->second->end() && next->mode_ == SHARED) {
-            unordered_map<Txn*, int>::iterator found = txn_waits_.find(next->txn_);
+            unordered_map<Txn*, int>::iterator found =
+              txn_waits_.find(next->txn_);
             if (found == txn_waits_.end()) {  // Found a zombie
               next = lock_deq->second->erase(next);  // Update next
               continue;
@@ -322,7 +333,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
           if (found != txn_waits_.end()) {  // System thinks txn is alive
             txn_waits_.erase(txn);          //   Prove it wrong!
           }                                 // Else do nothing to wait-list
-          
+
           // Remove the txn entry from the lock table
           lock_deq->second->erase(l);
         }
@@ -331,7 +342,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
         if (found != txn_waits_.end()) {  // System thinks txn is alive
           txn_waits_.erase(txn);          //   Prove it wrong!
         }                                 // Else do nothing to wait-list
-        
+
         // Remove the txn entry from the lock table
         lock_deq->second->erase(l);
       }
@@ -343,29 +354,30 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 }
 
 LockMode LockManagerB::Status(const Key& key, vector<Txn*>* owners) {
-  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
+  unordered_map<Key, deque<LockRequest>*>::iterator lock_deq =
+    lock_table_.find(key);
   LockMode mode = EXCLUSIVE;
-  owners->clear(); // clear old lock owners
-  if (lock_deq == lock_table_.end()){        // if not found
+  owners->clear();  // clear old lock owners
+  if (lock_deq == lock_table_.end()) {  // if not found
     return UNLOCKED;
-  }
-  else{ // if deque found, find all Txn's and add to owners
-    deque<LockRequest>::iterator l = lock_deq->second->begin(); // holds txn
+  } else {  // if deque found, find all Txn's and add to owners
+    deque<LockRequest>::iterator l =
+      lock_deq->second->begin();  // holds txn
     if (l == lock_deq->second->end())
       return UNLOCKED;
 
-    if(l->mode_ == EXCLUSIVE){
+    if (l->mode_ == EXCLUSIVE) {
       owners->push_back(l->txn_);
       return EXCLUSIVE;
     }
 
-    while (l != lock_deq->second->end() && l->mode_ != EXCLUSIVE){
+    while (l != lock_deq->second->end() && l->mode_ != EXCLUSIVE) {
       owners->push_back(l->txn_);
-      if(l->mode_ != mode){
-	mode = SHARED;
+      if (l->mode_ != mode) {
+        mode = SHARED;
       }
       ++l;
-    } 
+    }
   }
   return mode;
 }
