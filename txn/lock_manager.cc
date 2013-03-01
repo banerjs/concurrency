@@ -437,7 +437,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
   //   }
   //   ++l;
   // }
-  DERROR("Releasing 0x%lx\'s lock on %lu", (unsigned long) txn, key);
+  DERROR("Releasing 0x%lx\'s lock on %lu\n", (unsigned long) txn, key);
 
   unordered_map<Key, deque<LockRequest>*>::iterator lock_deq = lock_table_.find(key);
   if (lock_deq == lock_table_.end()) {    // if lock has not been issued before
@@ -451,9 +451,10 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
       continue;            // Bypass rest of the loop
     }
 
+    LockMode txn_mode = l->mode_;  // Save the mode for later use
+    
     // else the transaction has been found in this section of the loop
     if (l == lock_deq->second->begin()) {  // This is the beginning of the deque
-      LockMode txn_mode = l->mode_;  // Save the mode for later use
 
       // Mark the transaction as a zombie
       unordered_map<Txn*, int>::iterator found = txn_waits_.find(txn);
@@ -490,7 +491,7 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
                 next->mode_ == EXCLUSIVE)
               break;
           }
-        } else {  // This transaction was a shared
+        } else {  // txn_mode == SHARED. This transaction was a shared
           if (next->mode_ == SHARED) {  // Deal with edge case of zombie X lock
             unordered_map<Txn*, int>::iterator unlock = txn_waits_.find(next->txn_);
             if (unlock->second == 0) {  // Probably already has a lock. So break
@@ -523,6 +524,54 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
         }
       }
     } else {                               // Else middle of the deque
+      if (txn_mode == EXCLUSIVE) {   // Edge case of possible X btw. S
+        bool share_sandwich = true;  // Flag for S sandwich
+        for (deque<LockRequest>::iterator dummy = lock_deq->second->begin();
+             dummy != l; ++dummy) {  // Loop to check for valid S's
+          if (dummy->mode_ == EXCLUSIVE) {  // Sandwich impossible :(
+            share_sandwich = false;
+            break;
+          }
+        }
+        if (share_sandwich) {        // We have a sandwich. Oh Joy!
+          unordered_map<Txn*, int>::iterator zombie = txn_waits_.find(txn);
+          if (zombie != txn_waits_.end()) {  // System thinks txn is alive
+            txn_waits_.erase(txn);           //   Prove it wrong!
+          }                                  // Else do nothing to wait-list
+
+          // Remove the txn from the deque
+          deque<LockRequest>::iterator next = lock_deq->second->erase(l);
+          while (next != lock_deq->second->end() && next->mode_ == SHARED) {
+            unordered_map<Txn*, int>::iterator found = txn_waits_.find(next->txn_);
+            if (found == txn_waits_.end()) {  // Found a zombie
+              next = lock_deq->second->erase(next);  // Update next
+              continue;
+            } else {
+              --(found->second);  // Mark as locked
+              if (found->second == 0) {  // Send to ready
+                ready_txns_->push_back(next->txn_);
+              }
+              ++next;
+            }
+          }
+        } else {                     // No sandwich. So remove the stuff
+          unordered_map<Txn*, int>::iterator found = txn_waits_.find(txn);
+          if (found != txn_waits_.end()) {  // System thinks txn is alive
+            txn_waits_.erase(txn);          //   Prove it wrong!
+          }                                 // Else do nothing to wait-list
+          
+          // Remove the txn entry from the lock table
+          lock_deq->second->erase(l);
+        }
+      } else {  // txn_mode == SHARED. Just remove it
+        unordered_map<Txn*, int>::iterator found = txn_waits_.find(txn);
+        if (found != txn_waits_.end()) {  // System thinks txn is alive
+          txn_waits_.erase(txn);          //   Prove it wrong!
+        }                                 // Else do nothing to wait-list
+        
+        // Remove the txn entry from the lock table
+        lock_deq->second->erase(l);
+      }
     }                                      // end else (middle of deque)
     break;  // Do not continue with the loop. Transaction has been handled
   }
