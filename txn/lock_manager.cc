@@ -463,9 +463,11 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
       deque<LockRequest>::iterator next = lock_deq->second->erase(l);
 
       // Check to see which txn to set ready next
-      while (next != lock_deq
-    }                                      // End if (beginning of deque
-
+      while (next != lock_deq->second->end()) {  // While there are txns
+        // If txn was am exclusive txn, then check the next txn
+      }
+    } else {                               // Else middle of the deque
+    }                                      // end else (middle of deque)
     break;  // Do not continue with the loop. Transaction has been handled
   }
 
