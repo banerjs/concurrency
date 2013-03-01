@@ -453,6 +453,8 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 
     // else the transaction has been found in this section of the loop
     if (l == lock_deq->second->begin()) {  // This is the beginning of the deque
+      LockMode txn_mode = l->mode_;  // Save the mode for later use
+
       // Mark the transaction as a zombie
       unordered_map<Txn*, int>::iterator found = txn_waits_.find(txn);
       if (found != txn_waits_.end()) {  // System thinks txn is alive
@@ -464,7 +466,61 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
 
       // Check to see which txn to set ready next
       while (next != lock_deq->second->end()) {  // While there are txns
-        // If txn was am exclusive txn, then check the next txn
+        // If txn was an exclusive txn, then check the next txn, and grant locks
+        // until another exclusive lock request. Else if the lock was the last
+        // shared, then grant the immediate next one (unless its a
+        // zombie). Otherwise don't do anything because it's been taken care of
+        // elsewhere.
+        if (txn_mode == EXCLUSIVE) {  // Grant the following txns
+          unordered_map<Txn*, int>::iterator unlock = txn_waits_.find(next->txn_);
+          if (unlock == txn_waits_.end()) {  // Found a zombie
+            next = lock_deq->second->erase(next);  // Update iterator
+            continue;
+          } else {  // Grant the lock to the txn
+            --(unlock->second);  // Reduce the lock_wait count
+            if (unlock->second == 0) {  // All locks granted
+              ready_txns_->push_back(next->txn_);  // State txn as ready
+            }  // else continue
+          }
+          if (next->mode_ == EXCLUSIVE) {  // Exclusive txn so break
+            break;
+          } else {  // Increment and check for exclusive
+            ++next;
+            if (next != lock_deq->second->end() &&
+                next->mode_ == EXCLUSIVE)
+              break;
+          }
+        } else {  // This transaction was a shared
+          if (next->mode_ == SHARED) {  // Deal with edge case of zombie X lock
+            unordered_map<Txn*, int>::iterator unlock = txn_waits_.find(next->txn_);
+            if (unlock->second == 0) {  // Probably already has a lock. So break
+              break;
+            } else {
+              --(found->second);  // Mark as locked
+              if (found->second == 0) {  // Send to ready
+                ready_txns_->push_back(next->txn_);
+              }
+
+              // Increment next and check for more locks
+              ++next;
+              if (next != lock_deq->second->end() &&
+                  next->mode_ == EXCLUSIVE)
+                break;
+            }
+          } else {  // Check for zombie, else send to ready and break
+            unordered_map<Txn*, int>::iterator found = txn_waits_.find(next->txn_);
+            if (found == txn_waits_.end()) {  // found a zombie
+              next = lock_deq->second->erase(next);  // Update next
+              continue;
+            } else {  // This is valid transaction and hence break
+              --(found->second);  // Mark as locked
+              if (found->second == 0) {  // Send to ready
+                ready_txns_->push_back(next->txn_);
+              }
+              break;
+            }
+          }
+        }
       }
     } else {                               // Else middle of the deque
     }                                      // end else (middle of deque)
