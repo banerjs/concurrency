@@ -451,7 +451,22 @@ void LockManagerB::Release(Txn* txn, const Key& key) {
       continue;            // Bypass rest of the loop
     }
 
-    
+    // else the transaction has been found in this section of the loop
+    if (l == lock_deq->second->begin()) {  // This is the beginning of the deque
+      // Mark the transaction as a zombie
+      unordered_map<Txn*, int>::iterator found = txn_waits_.find(txn);
+      if (found != txn_waits_.end()) {  // System thinks txn is alive
+        txn_waits_.erase(txn);          //   Prove it wrong!
+      }                                 // Else do nothing to wait-list
+
+      // Remove the txn entry from the lock table
+      deque<LockRequest>::iterator next = lock_deq->second->erase(l);
+
+      // Check to see which txn to set ready next
+      while (next != lock_deq
+    }                                      // End if (beginning of deque
+
+    break;  // Do not continue with the loop. Transaction has been handled
   }
 
   return;
