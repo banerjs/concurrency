@@ -16,7 +16,7 @@
 using std::string;
 
 // debug mode
-#define DEBUG true
+#define DEBUG false
 
 // assert if in debug mode
 #define DCHECK(ARG) if (DEBUG) { assert(ARG); }

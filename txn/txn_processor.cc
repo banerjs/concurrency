@@ -10,8 +10,8 @@
 #include "txn/txn_types.h"
 
 // Thread & queue counts for StaticThreadPool initialization.
-#define THREAD_COUNT 10
-#define QUEUE_COUNT 100
+#define THREAD_COUNT 100
+#define QUEUE_COUNT 10
 
 // Maximum number of transactions to deal with during validation and
 // post-validation.
